@@ -92,6 +92,15 @@ skill 的发现根由「最近的含 `.git` 的祖先目录」决定，没有 `.
 - 症状：每次 `git add` 刷 8 条 `LF will be replaced by CRLF` 警告
 - 处理：[.gitattributes](<D:/Agent_test/.gitattributes>) 定死换行规则，现在警告数 0
 
+**5. 这个 shell 其实是 PowerShell 5.1，不是 pwsh 7（重要）**
+
+- 工具描述写的是 `pwsh`，实测 `$PSVersionTable.PSVersion` = **5.1.26100.9444**
+- 后果：PS 5.1 **会把空字符串参数整个丢掉**；`$PSNativeCommandArgumentPassing` 这个开关 7.3+ 才有，这里根本不存在
+- 真实故障：`ssh-keygen -t ed25519 -f $key -N ''` 报 `Too many arguments` —— `-N` 后面什么都没剩下
+- 绕法：空参数写成 `'""'`，即 `ssh-keygen -t ed25519 -f $key -N '""'`
+- **别被这条误导**：`ssh-keyscan` 在 OpenSSH 9.5p2 上会报 `unsupported KEX method sntrup761x25519-sha512@openssh.com`，但 `ssh -T git@github.com` 实测传输正常。`ssh-keyscan` 失败 ≠ 连不上
+- 该错误还会写进 `known_hosts`：`~/.ssh/known_hosts` 里已含 github.com 的 Ed25519 主机公钥，指纹与 GitHub 官方公布的 `SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU` **逐字符一致**
+
 ## 两条边界（设计，不是故障）
 
 1. **权限**：本会话是 `workspace-write` + 逐次批准。`D:\Agent_test` 内可写，**区外只读**，越界会弹批准。
