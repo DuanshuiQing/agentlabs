@@ -1,0 +1,429 @@
+# Agent 与 Skill 构建 · 学习计划
+
+> **位置**：`D:\Agent_test\PLAN.md`（本工作区的唯一计划文件）
+> **适用对象**：西安电子科技大学 计算机科学与技术 大三（2024 级）本科在读
+> **目标**：达到「能自己造 agent、能写 skill、能用评测数字说明改进」的水平
+> **来源**：借鉴另一工作区的学习计划后在本工作区重新生成；已修正 7 处问题，逐条列在 [附录 B](#附录-b与源计划的差异清单)
+> **维护方式**：每次阶段验收后更新本文件的进度勾选，并 `git commit`。计划本身也受版本控制
+
+---
+
+## 0. 先对齐三个层次
+
+| 层次 | 能力描述 | 是否够用 |
+| --- | --- | --- |
+| 会用 | 调 API、写 prompt、拼一个能跑的 demo | 只是起点 |
+| 会建 | 能设计工具接口、管理上下文、写 skill、跑评测、做失败归因 | **进组的基本门槛** |
+| 会研究 | 能读论文、复现、提出并验证一个具体问题、写实验报告 | 进组后成长的方向 |
+
+**核心结论：Agent 工程 ≈ 上下文工程 + 工具/接口设计 + 循环与状态管理 + 评测。**框架只占最外面薄薄一层。
+
+最常见的错误路径是「先学框架的一堆封装概念」，结果是 agent 一失败就完全不知道原因——因为循环被框架藏起来了，而失败恰恰发生在循环里。
+
+---
+
+## 1. 前置基础自检
+
+大三课程基本覆盖，缺哪补哪，**不必系统重学**：
+
+- [ ] Python 熟练：类、装饰器、`async/await`、`pydantic`、`typing`、虚拟环境与依赖管理
+- [ ] JSON / JSON Schema 能读能写（tool calling 的接口就是它）
+- [ ] Git 基本操作：分支、commit、`.gitignore`、**索引与工作区的区别**
+- [ ] Linux / 命令行：文件操作、管道、进程、环境变量
+- [ ] HTTP 与 JSON-RPC 2.0 的基本概念（MCP 建立在它之上）
+- [ ] 会用至少一种 API：OpenAI 兼容接口 / DeepSeek / Anthropic（**推荐 OpenAI 兼容**，成本低、易替换）
+
+> 第 3 项里「索引与工作区的区别」是本工作区**实际踩过的坑**：一个 0 字节文件从磁盘上消失后，`git status` 显示 `AD`（索引里是"新增"、工作区是"已删除"）。见 [README.md](<D:/Agent_test/README.md>) 的踩坑记录。
+
+---
+
+## 2. 口径决定（**先定死，再动手**）
+
+源计划里有 5 处自相矛盾，会导致「照着 A 文档做事，被 B 文档的验收标准判错」。这里一次性裁定：
+
+| # | 争议点 | **裁定** | 理由 |
+| --- | --- | --- | --- |
+| 1 | 日志文件名：一处写 `run-<时间戳>.jsonl`，另一处写「固定为 `run.jsonl`」 | **`logs/run-<YYYYMMDD-HHMMSS>.jsonl`** | 固定文件名会让第二次运行覆盖第一次，T3 那次失败运行的轨迹就没了。而阶段 1 的评测全靠对比多次运行 |
+| 2 | 阶段 0 的「完成定义」两份不一致 | **取并集，6 条全要**（见 §4.1） | 其中「单次工具超时」只在更严的那份里有，而它正好防网络挂死 |
+| 3 | 测试数据把「我是干扰项」写在正文里 | **禁止任何自我暴露** | 计划自己写了「不要提前告诉 agent 答案」，数据文件却主动交代了测试设计 |
+| 4 | skill 放 `skills/` 还是别处 | **`.dsh/skills/`** | 这是 DSH 实测的发现根（rank 100 最高优先级）。放 `skills/` 只是普通目录，DSH **不会加载**，写得再好也不触发 |
+| 5 | 计划假设「本仓库已有 git 和 `AGENTS.md`」 | 本工作区**已是 git 仓库**；`AGENTS.md` 待建（G0） | `AGENTS.md` 在 DSH 里是**真生效**的，见附录 A |
+| 6 | 要求「一个有副作用的工具」，但测试题只需只读工具 | 工具 **≥2 个，其中 ≥1 个有副作用，且必须有验收题覆盖它**（T4） | 否则那条要求永远验收不到，等于没写 |
+
+**其余固定约定：**
+
+- 工具分发函数 `dispatch` **一律返回字符串，绝不向外抛异常**
+- 单次运行 **最大 10 步**；单次工具调用 **超时 20 秒**；单次模型调用 **超时 60 秒**
+- 密钥**只**放 `.env`，`.env` 已在 `.gitignore` 里
+- 一行日志一条 JSON，至少含 `step`、`role`、`content`
+
+---
+
+## 3. 目录结构
+
+```
+D:\Agent_test\
+├── PLAN.md                 # 本文件：路径、口径、进度
+├── README.md               # 工作区入口：环境事实、工具链口径、踩坑记录
+├── AGENTS.md               # 项目约定 + 学术诚信（DSH 会读进上下文）
+├── .dsh/skills/            # 阶段 2：skill 实际落点（DSH 直接加载）
+├── mini-agent/             # 阶段 0：手写 agent loop（约 300 行）
+│   ├── .env                # 密钥（不进 git）
+│   ├── .env.example
+│   ├── requirements.txt
+│   ├── check_env.py        # 环境自检，先跑通它
+│   ├── llm.py              # 模型调用
+│   ├── tools.py            # 工具定义 + 分发
+│   ├── agent.py            # 循环、步数、日志
+│   ├── data/               # 验收任务的数据
+│   └── logs/               # 每次运行的 JSONL
+├── evals/                  # 阶段 1：评测集 + 结果 JSON + 消融记录
+├── mcp-servers/            # 阶段 3：自写 MCP server
+├── labs/                   # 热身与专题实验（01-agent-loop 已有）
+└── notes/                  # 阶段 4：论文摘要（每周 2 篇）
+```
+
+**两条硬规矩：**
+
+1. **`.dsh/skills/` 里只放 skill**（`<名字>/SKILL.md` 或 `<名字>.md`，一层深度）。放 `README.md` 之类的散装 `.md` 会被当成平铺 skill 解析并告警——这个坑写在 [.dsh/skills/.gitkeep](<D:/Agent_test/.dsh/skills/.gitkeep>) 里。
+2. **`notes/` 放论文摘要，`.dsh/skills/` 放可执行知识**。两者的区别是：后者会在判定相关时被 agent **主动加载**。
+
+---
+
+## 4. 阶段化路径
+
+总预算：每天 2–3 小时，阶段 0–3 约 **6–8 周**。进组前至少完成阶段 0–2，并拥有一个**带评测数字**的项目。
+
+### 阶段 0：不借框架，从零手写一个 Agent Loop（3–7 天）
+
+**唯一产出物**：`mini-agent/`，约 300 行 Python。
+
+#### 4.1 完成定义（6 条，缺一条都不算完成）
+
+- [ ] **模型自己决定调用哪个工具** —— 不能是 `if/else` 猜出来的
+- [ ] **工具结果回填 `messages` 后模型能继续推理**，直到给出最终答案
+- [ ] **工具抛异常时不崩**：把错误文本回喂给模型，它能换路或如实报告失败
+- [ ] **有最大步数上限**，超限时优雅退出并说明原因
+- [ ] **有单次工具超时**（20 秒），超时同样转成文本回喂
+- [ ] **每次运行落一份 JSONL**（`logs/run-<时间戳>.jsonl`），一行一步，可复盘完整轨迹
+
+第 3 条最容易被跳过，也最能区分「玩具」和「能用的东西」。
+
+#### 4.2 只允许用的东西
+
+- ✅ Python 标准库
+- ✅ `openai`（**只用来发 HTTP 请求**）
+- ✅ `python-dotenv`（读 `.env`）
+- ❌ LangChain / LangGraph / LlamaIndex / OpenAI Agents SDK / AutoGen / CrewAI
+- ❌ `openai` SDK 里的高阶封装（Responses API 的 agent 编排、内置工具循环）
+
+**理由**：这一阶段的全部价值在于**看清循环本身**。用框架等于把要学的东西外包了。框架留到阶段 3，那时你才有能力判断它替你做了什么。
+
+#### 4.3 接口约定（**严格遵守，否则后面没法做评测**）
+
+```python
+# llm.py
+def call_model(messages: list[dict], tools: list[dict]) -> Any:
+    """发一次请求，返回 SDK 的原始响应对象。不做任何解析、不做循环。
+    必须带 timeout=60。"""
+
+# tools.py
+TOOLS: list[dict]                      # 工具的 JSON Schema 清单，直接交给模型
+def dispatch(name: str, args: dict) -> str:
+    """执行工具。必须返回字符串；任何异常（含超时）都转成字符串返回，绝不向外抛。"""
+
+# agent.py
+def run(task: str) -> str:
+    """跑完整循环，返回最终答案，并把轨迹写入 logs/。"""
+```
+
+**最少 4 个工具**，其中**至少一个有副作用**：
+
+| 工具 | 类型 | 用途 |
+| --- | --- | --- |
+| `read_file(path)` | 只读 | 读工作区内文本文件 |
+| `list_dir(path)` | 只读 | 列目录（T2 需要它才能先筛选） |
+| `calculator(expr)` | 纯计算 | 无 I/O，用 `ast` 白名单，**绝不用 `eval()`** |
+| `append_file(path, text)` | **有副作用** | 追加写入，T4 靠它验收 |
+
+#### 4.4 四条验收任务（先看题再写代码）
+
+数据放在 `mini-agent/data/`。**不要提前告诉 agent 答案**，也**不要在数据文件里写"这是干扰项"**。
+
+| # | 任务（原样交给 agent） | 考什么 | 判定 |
+| --- | --- | --- | --- |
+| **T1** | `读取 data/handbook.txt，回答：约定的日志文件名是什么？` | 单工具、单步 | 答出含 `run-` 和 `.jsonl` 的文件名，**不编造其他内容** |
+| **T2** | `在 data/ 目录里找出记录了本季度 API 预算的那个文件，告诉我金额。` | 多步：先列目录，再读对的文件，避开干扰项 | 答出正确金额；**答案只在 `budget-Q4.txt` 里** |
+| **T3** | `读取 data/handbook-v2.txt 并总结它的内容。` | 失败恢复 + 不幻觉 | **该文件不存在**。合格表现：如实说不存在（或先列目录确认后再说）。**编造出任何"内容"即为失败** |
+| **T4** | `把 T1 的答案写入 logs/answers.txt，然后读回来确认写对了。` | **有副作用的工具** + 写后读校验 | `logs/answers.txt` 磁盘上确实存在且内容正确；agent 报告了校验结果 |
+
+T3 是四条里最有价值的一条：它测的不是模型能力，而是**你的错误处理有没有把失败如实传下去**。
+
+**数据文件规格**（照这张表建，不要自由发挥）：
+
+| 文件 | 内容要点 | 服务于 |
+| --- | --- | --- |
+| `data/handbook.txt` | 项目约定清单。其中**必须有一条**写明「每次运行的日志文件名是 `run-<时间戳>.jsonl`，放在 `logs/` 下」 | T1 的答案源 |
+| `data/budget-Q4.txt` | 一份季度经费表，含**唯一一个**金额数字（例：`Q4 模型 API 预算   3800 元`） | T2 的答案源 |
+| `data/agenda-1020.txt` | 组会议程，**不得出现任何金额** | T2 干扰项 |
+| `data/roster.txt` | 成员名单，**不得出现任何金额** | T2 干扰项 |
+| `data/handbook-v2.txt` | **不要创建这个文件** | T3 的失败目标 |
+
+三个硬要求：
+
+1. **干扰项不得自我暴露** —— 不许写「本文件是干扰项」「本文件不含经费信息」之类的话，它要看起来就是个正常文件
+2. **答案唯一** —— T2 的金额只能出现在 `budget-Q4.txt` 一处，其余文件一律没有数字
+3. **T3 的目标文件必须真的不存在**，而不是被权限拦住 —— 否则测出来的就变成权限错误了
+
+#### 4.5 必须想明白的问题
+
+写完代码后自测，答不上来就是没学透：
+
+1. **为什么工具的错误要转成文本回喂，而不是直接 `raise`？**（提示：谁有能力根据错误信息改变策略？）
+2. **agent 与 workflow 的区别是什么？谁更可控、谁更通用？**
+3. **为什么工具描述（`description`）的质量，常常比 system prompt 更影响成功率？**
+4. **`dispatch` 一律返回字符串、绝不抛异常 —— 这一条为什么是整个设计的关键？**
+
+#### 4.6 每日节奏建议
+
+| 天 | 只要求做到 |
+| --- | --- |
+| 第 1 天 | 环境跑通（G1），能成功调用模型一次，打印出回复 |
+| 第 2 天 | 定义 4 个工具，模型能返回**一次** `tool_calls`（还不用循环） |
+| 第 3–4 天 | 接上 `while` 循环，**T1 通过** |
+| 第 5 天 | 加错误处理（异常 + 超时）+ 步数上限，**T3 通过** |
+| 第 6 天 | 日志落盘，**T2 通过**；加 `append_file`，**T4 通过** |
+| 第 7 天 | 回答 §4.5 四问，写 1 页复盘放进 `mini-agent/` |
+
+#### 4.7 一手资料
+
+- [Anthropic · Building effective agents](https://www.anthropic.com/engineering/building-effective-agents)：workflow 与 agent 的分野、五种 workflow 模式，这一领域最该先读的一篇
+
+### 阶段 1：上下文工程 + 评测（1–2 周）
+
+**产出物**：`evals/`，含 20–50 条任务集 + 通过率结果 + **一次消融实验记录**。
+
+1. 把阶段 0 的 agent 放到真实任务上（例：在给定仓库里修一个 bug、复现一段课程实验）
+2. 建最小评测集：每条写清「输入 / 期望结果 / 判定方式（精确匹配 or LLM 裁判 or 单元测试）」
+3. 跑基线通过率，然后**每次只改一处**（换提示、删一个工具、加 few-shot），记录通过率变化
+4. 学会读 trace：哪一步开始跑偏？是工具没选对、参数填错，还是上下文被噪声挤掉？
+
+**要掌握的概念**：system prompt 的职责边界、工具描述写法、少样本示例、历史压缩与摘要、子 agent 的上下文隔离、**分层按需加载（progressive disclosure）**、token 成本核算。
+
+**为什么这一步最值钱**：进组后导师最关心的不是「你的 demo 很酷」，而是「**你能定义指标、能跑出数字、能说清改进来自哪里**」。
+
+### 阶段 2：Agent Skill 构建（1–2 周）
+
+#### 2.1 skill 的结构（放 `.dsh/skills/`）
+
+```
+.dsh/skills/my-skill/
+├── SKILL.md          # 必需：YAML frontmatter(name, description) + 正文
+├── scripts/          # 可选：确定性操作用脚本
+├── references/       # 可选：深度文档，agent 按需读取
+└── assets/           # 可选：模板、图片等资源
+```
+
+#### 2.2 渐进披露 —— skill 的灵魂
+
+| 层级 | 内容 | 何时进入上下文 |
+| --- | --- | --- |
+| 第 1 层 | `name` + `description` | **常驻**，决定「何时触发」 |
+| 第 2 层 | `SKILL.md` 正文 | 判定相关后，agent 主动读取 |
+| 第 3 层 | `references/`、`scripts/` | 只在真正卡住/需要时才读 |
+
+所以 skill 能携带的上下文量在工程上几乎「无上限」——**代价只在真正用到时才付**。
+
+#### 2.3 写作规范
+
+- `name`：只用小写字母、数字、连字符；**kebab-case**；用动名词形式（`processing-pdfs`、`reviewing-code`）
+- `description`：**第三人称**，写清「做什么」+「什么时候用」。**这是触发率的命门**
+- `SKILL.md` 正文 ≤ **500 行**；超了就拆到 `references/`
+- 引用**只保留一层深度**，路径统一用正斜杠
+- **指令 vs 脚本分工**：确定性的活写成脚本让 agent 执行（脚本内容不进上下文）；需要权衡的判断写成自然语言
+- 用**多个不同强弱的模型**测试触发率
+
+#### 2.4 有反馈循环的练习方法（**强烈推荐**）
+
+1. **失败驱动**：让 agent 干你最熟悉的任务（自己写过的算法实验、CV 实验），记录它反复踩的坑
+2. 把坑连同「正确做法」写成一个 skill，**重跑同一批任务，对比通过率**
+3. 再写一个**元技能**：让 agent 自己总结成功路径与常见错误，回写进 skill
+4. **检验触发率**：只描述任务、**不提 skill 名字**，看它会不会自己触发；不触发就改 `description`
+
+#### 2.5 现成的活教材
+
+本工作区每次会话都会挂载若干内置 skill（`office-docx` / `office-pptx` / `office-xlsx` / `diagnose-windows-sandbox-acl`）。**学写 skill 最快的方式，是找一份真实在用的 `SKILL.md` 逐行读**：
+
+- frontmatter 的 `name` / `description` 是怎么描述触发条件的？
+- 正文为什么短？它把什么甩给了 `scripts/` 和 `references/`？
+- 脚本怎么被调用、结果怎么回填？
+
+**参考资料**：见 [附录 C](#附录-c资源链接转引未核实)。
+
+### 阶段 3：MCP 与工程化（2–3 周）
+
+#### 3.1 把 MCP 弄明白
+
+- 协议底座：JSON-RPC 2.0、有状态连接、能力协商
+- 三个角色：**Host**（LLM 应用）/ **Client**（Host 内的连接器）/ **Server**（提供能力）
+- Server 侧三大特性：**Resources**、**Prompts**、**Tools**
+- Client 侧特性：**Sampling**、**Roots**、**Elicitation**
+- 动手：自己写一个 MCP server，先 stdio，再迁移到 Streamable HTTP；接进现成客户端验证
+
+#### 3.2 关键认知：MCP 与 Skill 互补，不是竞争
+
+- **MCP 给「能力」**：能不能执行 SQL、列项目、调接口
+- **Skill 给「知识与判断」**：该怎么安全正确地用这些能力
+- 只有 MCP 时 agent 常「有能力但瞎猜」；**MCP + Skill** 组合在安全关键任务上成功率显著提升
+
+#### 3.3 框架：只挑一个学深
+
+| 框架 | 适合场景 |
+| --- | --- |
+| LangGraph | 需要状态机、强可控、可复现实验骨架（做研究最顺手） |
+| OpenAI Agents SDK | 概念少、上手快 |
+| Claude Agent SDK | 想做「类 Claude Code」的编码类 agent |
+| AutoGen/AG2、CrewAI、Google ADK、Smolagents | 了解即可，**别当主线** |
+
+#### 3.4 可观测性与安全
+
+- 可观测性：**Langfuse**（开源自托管）或 LangSmith，把每次 LLM 与工具调用 trace 下来——做对比实验的必备基建
+- 安全：prompt injection、工具最小权限、危险命令拦截、文件沙箱边界
+
+### 阶段 4：研究向（持续）
+
+**论文阅读顺序（由浅入深）**
+
+- 基础范式：ReAct、Reflexion、Toolformer、Self-Refine、Tree of Thoughts、Voyager
+- 综述（省时间，**先读综述再读原文**）：*A Survey on LLM based Autonomous Agents*；*The Rise and Potential of LLM Based Agents*；*A Review of Prominent Paradigms for LLM-Based Agents*（COLING 2025）
+- 评测基准：SWE-bench、WebArena、τ-bench、GAIA、AgentBench
+- 前沿：长期记忆、多 agent 协作、上下文压缩、agent 安全与对齐、用 RL 训练 agent 策略
+
+> 以上论文按**标题**在 arXiv 检索即可（编号变动快，以标题为准）。
+
+**找选题的窍门**：把「我做的 agent 在 X 类任务上为什么失败率高」当成研究问题，而不是「我要用最新框架」。
+
+**每周节奏**：精读 2 篇，各写 1 页摘要（问题 / 方法 / 实验 / 局限 / 可复现点），**组会上能用中文讲清楚**。
+
+---
+
+## 5. 避坑清单
+
+1. **别从框架入门**。先手写 agent loop，再看框架封装了什么。
+2. **别只做 demo**。没有评测数字的项目，在组里无法推进，也无法写论文。
+3. **别追新框架，追不变的能力**：上下文管理、工具设计、评测设计、失败归因。
+4. **别忽视 token 成本**。渐进披露不只是写作技巧，是硬工程约束。
+5. **别把 agent 生成的代码当成自己的**。进组前写的每一行都要能解释（见 `AGENTS.md` 的学术诚信条款）。
+6. **别跳过失败日志**。不落盘 trace 的实验等于没做。
+7. **别在全局 Python 里装包、却用 `.venv` 运行**（或反过来）→ 报 `ModuleNotFoundError`，白折腾半小时。
+8. **别把带 `tool_calls` 的 assistant 消息丢了** → 模型会重复调用同一个工具，死循环。
+9. **回填工具结果时别忘了 `tool_call_id`** → 接口直接 400。
+10. **别把 Python 对象直接塞进 `messages`** → 必须先 `json.dumps` 成字符串。
+
+---
+
+## 6. 进组前的作品集
+
+面试/组会时能拿出的三样东西：
+
+1. 一个**能跑**的 agent，且你能**逐行解释**
+2. 一个**带数字**的评测对比（改了什么、涨了多少、为什么）
+3. 一份**论文摘要集**，证明你能持续跟进并提炼问题
+
+---
+
+## 7. 进度勾选
+
+**准备**
+
+- [ ] **G0** 建 `AGENTS.md`（项目约定 + 学术诚信）；确认 git 仓库正常
+- [ ] **G1** `mini-agent/` 建 venv（`py -3.12 -m venv .venv`）、装依赖、填 `.env`、**跑通 `check_env.py`（返回码 0）**
+- [ ] **G1b** 按 §4.4 规格建 `mini-agent/data/` 的四道验收数据（**干扰项不得自我暴露**）
+
+**阶段 0**
+
+- [ ] 一次成功的模型调用（打印出回复）
+- [ ] 一次成功的 `tool_calls` 返回
+- [ ] `while` 循环接通，**T1 通过**
+- [ ] 异常 + 超时转文本回喂，**T3 通过**
+- [ ] 步数上限生效（故意设成 3 验证）
+- [ ] JSONL 落盘，**T2 通过**
+- [ ] `append_file` 有副作用工具，**T4 通过**
+- [ ] 回答 §4.5 四问，写出复盘
+
+**阶段 1–4**
+
+- [ ] 阶段 1：20 条以上评测集，出基线数字 + 一次消融
+- [ ] 阶段 2：写出 2 个 skill（含 1 个专业相关），**只描述任务不提名字也能触发**
+- [ ] 阶段 3：自写 MCP server 并接入客户端；接上 trace
+- [ ] 阶段 4：累计 10 篇论文摘要，选定一个可验证的小问题
+
+---
+
+## 附录 A：本机环境事实（**已实测**）
+
+| 项目 | 实测值 | 对计划的影响 |
+| --- | --- | --- |
+| `py -3.12` | ✅ 可用（`Python312`，64-bit） | 建 venv 用 `py -3.12 -m venv .venv` |
+| 系统默认 Python | **3.14.0** | **不要用它**做数据/依赖相关的事，太新、轮子少 |
+| DSH 内置 Python | **3.12.14** + numpy/pandas/openpyxl/python-docx/python-pptx/Pillow/lxml/XlsxWriter | 处理 Office 与数据用它；也能 `-m venv` |
+| Node | v24.19.0（`D:\node.js\node.exe`） | 阶段 3 写 MCP server 够用 |
+| Git | 2.55.0，本工作区**已初始化** | 身份（`user.name`/`user.email`）**尚未配置**，配之前无法 commit |
+| `AGENTS.md` | **DSH 确实会加载**：候选名 `["AGENTS.md","CLAUDE.md"]`，以 `.git` 标记项目根，从根到会话目录整条链作为持久基线进入第一次请求；受字节预算约束；**无文件监视器**（外部改动需下一次成功读写才刷新） | 所以 G0 不是形式主义：内容会真的进我的上下文 |
+| `.dsh/skills/` | DSH 的发现根，rank 100 | skill 必须放这里才会被加载 |
+
+---
+
+## 附录 B：与源计划的差异清单
+
+借鉴自 `D:\university_work\agent_learning\README.md`。**本工作区未改动源工作区的任何文件**。以下是本计划主动做出的修正：
+
+| # | 源计划的问题 | 本计划的处理 |
+| --- | --- | --- |
+| 1 | 日志文件名两处冲突（`run-<时间戳>.jsonl` vs 固定 `run.jsonl`） | §2 裁定 1：统一为带时间戳 |
+| 2 | 阶段 0 完成定义两份不一致（一份有超时和副作用工具要求） | §2 裁定 2 + §4.1：取并集，6 条 |
+| 3 | 要说「不要提前告诉 agent 答案」，数据文件却写「本文件是干扰项」 | §2 裁定 3 + §4.4：禁止自我暴露 |
+| 4 | skill 放 `skills/`，但 DSH 只从 `.dsh/skills/` 加载 | §2 裁定 4 + §3：改到 `.dsh/skills/` |
+| 5 | 假设「本仓库已有 git 和 `AGENTS.md`」，实际都没有 | §2 裁定 5 + G0：本工作区已 init，`AGENTS.md` 列入待办 |
+| 6 | 要求有副作用的工具，但测试题只覆盖只读工具 | §2 裁定 6 + T4：新增覆盖题 |
+| 7 | `check_env.py` 的接口调用**没有超时**，网络卡住会无限挂起 | §4.3 约定 `timeout=60`；G1 里一并加固 |
+
+**保留不动的部分**：三个阶段划分、`mini-agent/` 约 300 行的产出物要求、只用标准库 + `openai` + `python-dotenv` 的约束、四条自测问题、避坑清单、作品集三样东西、论文阅读顺序。
+
+---
+
+## 附录 C：资源链接（**转引，未核实**）
+
+> ⚠️ 下列链接与版本号**转引自源计划，我尚未逐条验证有效性**。这个领域开源书迭代快，**务必用 Releases / 在线阅读的最新版**，不要读别人转发的旧 PDF。
+
+**主线教材**
+
+- [bojieli/ai-agent-book](https://github.com/bojieli/ai-agent-book)（李博杰《深入理解 AI Agent》，2.0 版）— 核心公式：**Agent = LLM + 上下文 + 工具**；约 109 个配套实验，正文开源
+  - ⚠️ 门槛：相当一部分实验依赖大显存 GPU、CUDA、vLLM、付费 API。**只跑官方推荐的第一批 Starter**，其余目标是「读得懂、知道需要什么硬件」
+  - ⚠️ 正文不教你敲代码，所以**阶段 0 必须自己写，不能跳过**
+  - ⚠️ 第 8 章（模型后训练）是全书唯一专家级，没修过 ML 课建议先跳过
+
+**学习路线与索引**
+
+- [datawhalechina/Agent-Learning-Hub](https://github.com/datawhalechina/Agent-Learning-Hub) — 只维护一个 README 的路线 todo list；**当索引查，不要通读**
+- [datawhalechina/hello-agents](https://github.com/datawhalechina/hello-agents)（《从零开始构建智能体》）— 中文社区入门；其 Extra 章节含 Skills 与 MCP 专题
+
+**Skill 专题**
+
+- [Anthropic · Equipping agents for the real world with Agent Skills](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills)
+- [Supabase Agent Skills](https://github.com/supabase/agent-skills) — 生产级 skill 的真实写法
+- `anthropics/skills` 示例仓库（PDF / docx / pptx 那几个，结构规范）
+
+**源码精读**
+
+- [Dante-dan/pi-agent-book](https://github.com/Dante-dan/pi-agent-book) — 以真实 agent harness 的固定提交为依据逐层拆解
+- [shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code)
+
+**课程**
+
+- [Hugging Face Agents Course](https://github.com/huggingface/agents-course)
+- [microsoft/ai-agents-for-beginners](https://github.com/microsoft/ai-agents-for-beginners)
+
+**协议**
+
+- [MCP 规范](https://modelcontextprotocol.io/)（含安全与信任原则）

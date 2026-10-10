@@ -1,0 +1,11 @@
+# 这个目录是你的项目级 skill 根目录（rank 100，优先级最高）。
+#
+# 注意：不要在这里放 README.md 之类的散装 .md 文件！
+# 发现机制会把根目录下每个顶层 .md 都当成一个平铺 skill 去解析，
+# 缺少 frontmatter 的文件会产生警告并跳过。
+#
+# 正确放法（二选一）：
+#   .dsh/skills/my-skill/SKILL.md      ← 目录包，可以带脚本和参考资料
+#   .dsh/skills/my-skill.md            ← 平铺单文件
+#
+# 本文件是 .gitkeep，不是 .md，不会被扫描。
