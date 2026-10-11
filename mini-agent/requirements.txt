@@ -1,0 +1,7 @@
+# 阶段 0 只需要这两个包。
+# 不要装 LangChain / LangGraph / Agents SDK —— 这一阶段就是要不用框架。
+openai
+python-dotenv
+
+# 装完之后建议锁定实际版本，方便以后复现：
+#   .venv\Scripts\python.exe -m pip freeze > requirements.lock.txt

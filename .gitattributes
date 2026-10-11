@@ -2,15 +2,20 @@
 * text=auto
 .gitattributes text eol=lf
 .gitignore     text eol=lf
+.gitkeep       text eol=lf
+.env.example   text eol=lf
 
 # 源码与文档用 LF（和 Linux 工具链、GitHub 渲染一致）
 *.py    text eol=lf
 *.md    text eol=lf
 *.json  text eol=lf
+*.jsonl text eol=lf
 *.yaml  text eol=lf
 *.yml   text eol=lf
 *.toml  text eol=lf
 *.sh    text eol=lf
+*.txt   text eol=lf
+*.cfg   text eol=lf
 
 # Windows 原生脚本保留 CRLF
 *.ps1   text eol=crlf
