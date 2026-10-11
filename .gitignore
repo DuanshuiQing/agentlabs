@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+.tmp/
 
 # 密钥与本地配置 —— 永不入库
 .env

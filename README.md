@@ -134,6 +134,23 @@ skill 的发现根由「最近的含 `.git` 的祖先目录」决定，没有 `.
 - ⚠️ **这绝不代表网络不通**：同一时刻 DNS 解析正常、443 端口 TCP 连通、`pip` 直连官方 PyPI 正常
 - 排查网络请用 `pip` / 浏览器 / `ssh`，**不要用 curl 下结论**
 
+**10. pip 把临时目录拉在工作区根目录（已定位并给出修法）**
+
+- 症状：一次 `pip install` 之后，`D:\Agent_test` 根目录多出十几个 `pip-unpack-*` / `pip-install-*` / `pip-ephem-wheel-cache-*` 目录，**而且在沙箱下删不掉**（`对路径…的访问被拒绝`）
+- 机制：Python `tempfile` 的候选临时目录依次是 `TMPDIR` → `TEMP` → `TMP` → `c:\temp` → `c:\tmp` → `\temp` → `\tmp` → **`os.curdir`（当前工作目录）**。前面全都写不进去时，它会**退回当前工作目录**，于是 pip 的临时文件落在了工作区
+- 实测：
+  - 沙箱内写 `%LOCALAPPDATA%\Temp` **被拒**（`PermissionError: [Errno 13]`）
+  - 沙箱内 `tempfile.gettempdir()` 被 DSH 重定向为 `%LOCALAPPDATA%\Temp\dsh-<随机>`（沙箱给的专属可写临时区）
+  - 强制 `TMPDIR` 后 `gettempdir()` 变成指定目录，**根目录 0 新增垃圾**（已验证）
+- **修法**：跑 pip 前把临时目录钉在 `.tmp`
+  ```powershell
+  $env:TMPDIR = 'D:\Agent_test\.tmp'
+  New-Item -ItemType Directory -Force -Path $env:TMPDIR | Out-Null
+  ```
+  `.tmp/` 已加入 `.gitignore`
+- ⚠️ **沙箱进程创建的目录在沙箱下删不掉**（`pip-*`、`.tmp\probe-*` 都验证过）；普通临时**文件**可以删。清目录要么用不受限模式，要么在**你自己的 PowerShell 窗口**里删（那里没有沙箱）
+- 本次已完成：`openai 3.28.0`、`python-dotenv 1.2.4`（含 pydantic 2.14.0 / httpx2 2.13.1 / anyio 4.15.1），走清华镜像，镜像已固化进 `.venv\pip.ini`
+
 ## 两条边界（设计，不是故障）
 
 1. **权限**：本会话是 `workspace-write` + 逐次批准。`D:\Agent_test` 内可写，**区外只读**，越界会弹批准。
