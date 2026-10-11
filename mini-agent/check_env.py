@@ -40,8 +40,10 @@ def _installed(module: str) -> str | None:
         return None
     from importlib.metadata import PackageNotFoundError, version
 
+    # 模块名与发行版名不一定一致：dotenv 属于 python-dotenv
+    dist = {"dotenv": "python-dotenv"}.get(module, module)
     try:
-        return version(module)
+        return version(dist)
     except PackageNotFoundError:
         return "已安装（版本未知）"
 
