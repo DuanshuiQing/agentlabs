@@ -101,6 +101,24 @@ skill 的发现根由「最近的含 `.git` 的祖先目录」决定，没有 `.
 - **别被这条误导**：`ssh-keyscan` 在 OpenSSH 9.5p2 上会报 `unsupported KEX method sntrup761x25519-sha512@openssh.com`，但 `ssh -T git@github.com` 实测传输正常。`ssh-keyscan` 失败 ≠ 连不上
 - 该错误还会写进 `known_hosts`：`~/.ssh/known_hosts` 里已含 github.com 的 Ed25519 主机公钥，指纹与 GitHub 官方公布的 `SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU` **逐字符一致**
 
+**6. `git push` 报 `couldn't create signal pipe, Win32 error 5`（已修复）**
+
+- 症状：`git ls-remote` / `git push` 失败，报错来自 `C:\Program Files\Git\usr\bin\ssh.exe: fatal error - couldn't create signal pipe, Win32 error 5`
+- 原因：git 默认调用**它自带的 MSYS 版 ssh**，而 MSYS 程序要靠创建命名管道做信号模拟；**DSH 沙箱禁止创建命名管道**。手工跑 `ssh` 之所以正常，是因为那是 Windows 原生 OpenSSH（`System32`），跟它不是同一个程序
+- 修复：让本仓库改用原生 OpenSSH（`git config` 是本地写入，不需要批准）
+
+  ```powershell
+  git config --local core.sshCommand 'C:/Windows/System32/OpenSSH/ssh.exe'
+  ```
+
+- ⚠️ 这是**仓库级**配置。新建另一个仓库要重设一遍，否则同样的报错会回来；想一劳永逸就写进全局配置（属工作区外，需批准）
+
+**7. known_hosts 的 `update_known_hosts: Permission denied`（已修复）**
+
+- 症状：`ssh -T git@github.com` 认证成功，但额外刷一条 `update_known_hosts: hostfile_replace_entries failed ... Permission denied`
+- 原因：OpenSSH 默认 `UpdateHostKeys yes`，会把服务器通告的**其它**主机密钥类型学习并写回 `known_hosts`，而这个写入被沙箱挡住
+- 修复：`~/.ssh/config` 里对 github.com 设 `UpdateHostKeys no`。**不影响** known_hosts 中对 Ed25519 主机密钥的严格校验
+
 ## 两条边界（设计，不是故障）
 
 1. **权限**：本会话是 `workspace-write` + 逐次批准。`D:\Agent_test` 内可写，**区外只读**，越界会弹批准。
