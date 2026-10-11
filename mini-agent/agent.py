@@ -1,16 +1,23 @@
-"""阶段 0 · 第 3 步：走完一轮完整的工具闭环（**这里还没有 while 循环**）。
+"""阶段 0 · 第 4 步：把单轮驱动换成 while 循环 —— 这就是一个完整的 agent 了。
 
-一次闭环要发两次请求：
+第 3 步的代码里，"请求 A → 执行工具" 和 "请求 B" 是**同一段代码的两份拷贝**。
+这一步把拷贝删掉、套上 while，于是它能一直走到模型不再请求工具为止。
 
-    请求 A:  [user]                         -> 模型回 [assistant + tool_calls]
-             （你执行工具，并把两条消息收进历史）
-    请求 B:  [user, assistant, tool]        -> 模型回最终答案
+循环体一共四件事，**出口在循环体内部**：
 
-**请求 B 能给出最终答案，全靠请求 A 的两条消息被正确收进历史。**
-漏掉任何一条，请求 B 都会报 400（已实测）。
+    ① resp = call_model(messages, TOOLS)     发请求
+    ② if not msg.tool_calls: return ...      ★ 唯一的正常出口 ★
+    ③ messages.append(assistant_message)     回填 assistant 消息
+    ④ messages.append(tool 消息)             回填工具结果
+       （然后什么都不写，自然回到 ① —— 这就是"再走一轮"）
 
-第 3 步只走一轮。第 4 步把 run() 包进 while，它就能一直走下去 ——
-那时你会看到"单轮"到"无限轮"只差几行。
+⚠️ 关于 max_steps：`while True` 不带上限等于把额度交给模型决定。
+所以这一步就把上限带上。它有两个出口，第二个是安全网：
+
+    出口 1（正常）：模型不再请求工具，给出最终答案
+    出口 2（保护）：步数用完，优雅退出并说明原因
+
+第 6 步会把上限做成可配置，并故意设成 2 来观察出口 2。
 
 运行：
     mini-agent\\.venv\\Scripts\\python.exe mini-agent\\agent.py
@@ -28,12 +35,14 @@ if hasattr(sys.stdout, "reconfigure"):
 from llm import call_model
 from tools import TOOLS, dispatch
 
+MAX_STEPS = 10
+
 
 def assistant_message(msg: object) -> dict:
     """把模型的回复转成可以放回 messages 的 dict。
 
-    这一步是最容易漏的地方：漏了它，模型就"不记得"自己请求过调用工具，
-    于是会重复请求同一个工具 —— 死循环的起点（PLAN §7 避坑第 8 条）。
+    漏了它，模型就"不记得"自己请求过调用工具，于是会重复请求同一个工具 ——
+    死循环的起点（PLAN §7 避坑第 8 条）。
     """
     return {
         "role": "assistant",
@@ -66,71 +75,58 @@ def execute(call: object) -> str:
     return dispatch(call.function.name, args)
 
 
-def show(messages: list[dict], title: str = "") -> None:
-    """打印 messages 的形状 —— 第 3 步最该盯住的东西。"""
-    if title:
-        print(f"\n--- {title} ---")
-    print(f"  messages 现在有 {len(messages)} 条：")
+def show(messages: list[dict], title: str) -> None:
+    """打印 messages 的形状。"""
+    print(f"\n--- {title}：messages 共 {len(messages)} 条 ---")
     for i, m in enumerate(messages):
         role = m["role"]
         if role == "tool":
-            print(f"    [{i}] {role:<10} tool_call_id={m['tool_call_id']}  {m['content'][:55]!r}")
+            print(f"  [{i}] {role:<10} tool_call_id={m['tool_call_id']}  {m['content'][:52]!r}")
         elif role == "assistant" and m.get("tool_calls"):
             names = [c["function"]["name"] for c in m["tool_calls"]]
-            print(f"    [{i}] {role:<10} tool_calls={names}  content={m['content']!r}")
+            print(f"  [{i}] {role:<10} tool_calls={names}  content={m['content']!r}")
         else:
-            print(f"    [{i}] {role:<10} {m['content']!r}")
+            print(f"  [{i}] {role:<10} {m['content']!r}")
 
 
-def run(task: str) -> str:
-    """第 3 步版本：只走一轮。第 4 步会加 while 循环。"""
+def run(task: str, max_steps: int = MAX_STEPS) -> str:
+    """跑完整个循环，返回最终答案。"""
     messages: list[dict] = [{"role": "user", "content": task}]
-    show(messages, "起始状态")
 
-    # ---------------- 请求 A ----------------
-    print("\n[请求 A] 只带 user 消息")
-    resp = call_model(messages, TOOLS)
-    msg = resp.choices[0].message
-    print(
-        f"          -> finish_reason={resp.choices[0].finish_reason!r}  "
-        f"content={msg.content!r}  tool_calls={len(msg.tool_calls or [])} 个"
-    )
-
-    if not msg.tool_calls:
-        print("          模型直接给了答案，这轮不需要工具。")
-        return msg.content or ""
-
-    # 【消息 1】assistant 必须原样收进历史（含它的 content）
-    messages.append(assistant_message(msg))
-
-    # 【消息 2..n】每个 tool_call 对应一条 tool 消息
-    for call in msg.tool_calls:
-        observation = execute(call)
-        messages.append(
-            {"role": "tool", "tool_call_id": call.id, "content": observation}
+    for step in range(1, max_steps + 1):
+        print(f"\n[第 {step} 轮] 发请求，messages 共 {len(messages)} 条")
+        resp = call_model(messages, TOOLS)
+        msg = resp.choices[0].message
+        print(
+            f"          <- finish_reason={resp.choices[0].finish_reason!r}  "
+            f"content={msg.content!r}  tool_calls={len(msg.tool_calls or [])} 个"
         )
-        print(f"          执行 {call.function.name}(...) -> {observation[:70]!r}")
 
-    show(messages, "请求 A 之后（注意新增的两条）")
+        # ---- 出口 1：模型不再请求工具，这就是最终答案 ----
+        if not msg.tool_calls:
+            return msg.content or ""
 
-    # ---------------- 请求 B ----------------
-    print("\n[请求 B] 带上 user + assistant + tool")
-    resp2 = call_model(messages, TOOLS)
-    msg2 = resp2.choices[0].message
-    print(f"          -> finish_reason={resp2.choices[0].finish_reason!r}")
+        # ---- 回填 assistant 消息（含它的 content 和 tool_calls）----
+        messages.append(assistant_message(msg))
 
-    if msg2.tool_calls:
-        names = [c.function.name for c in msg2.tool_calls]
-        print(f"          -> 模型还想再调 {names}")
-        print("          第 3 步到此为止：单轮驱动处理不了第二次工具调用。")
-        print("          这正是第 4 步 while 循环要解决的问题。")
-        return "[未完成] 单轮驱动不够用"
+        # ---- 回填工具结果：每个 tool_call 对应一条 tool 消息 ----
+        for call in msg.tool_calls:
+            observation = execute(call)
+            messages.append(
+                {"role": "tool", "tool_call_id": call.id, "content": observation}
+            )
+            print(f"          执行 {call.function.name}(...) -> {observation[:60]!r}")
 
-    return msg2.content or ""
+        show(messages, f"第 {step} 轮回填后")
+
+    # ---- 出口 2：步数用完 ----
+    print(f"\n[停止] 已达步数上限 {max_steps}，未能得到最终答案。")
+    return f"[未完成] 达到步数上限 {max_steps}，模型仍在请求工具调用。"
 
 
 if __name__ == "__main__":
-    task = "requirements.txt 里写了什么？"
+    # T1：单工具、单步 —— 用来验证循环能正常收口
+    task = "读取 data/handbook.txt，回答：项目约定的日志文件名是什么？"
     print(f"任务：{task}")
     answer = run(task)
     print(f"\n===== 最终答案 =====\n{answer}")
