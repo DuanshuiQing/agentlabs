@@ -119,6 +119,21 @@ skill 的发现根由「最近的含 `.git` 的祖先目录」决定，没有 `.
 - 原因：OpenSSH 默认 `UpdateHostKeys yes`，会把服务器通告的**其它**主机密钥类型学习并写回 `known_hosts`，而这个写入被沙箱挡住
 - 修复：`~/.ssh/config` 里对 github.com 设 `UpdateHostKeys no`。**不影响** known_hosts 中对 Ed25519 主机密钥的严格校验
 
+**8. 在 DSH 会话里跑 `pip install` 必失败（重要，影响 G1）**
+
+- 症状：`OSError: [Errno 13] Permission denied: '...\pip-unpack-XXXX\openai-3.28.0-py3-none-any.whl.metadata'`，退出码 1
+- 已排除的可能：**不是**临时目录位置问题（把 `TEMP` 指到工作区内同样失败）；**不是** `--dry-run/--report` 特有（普通 install 一样失败）；**不是**网络（`pip index versions openai` 这类只访问 JSON API 的命令正常，退出码 0）
+- 结论：**是 DSH 的文件沙箱导致的** —— 同一条命令在不受限模式下**退出码 0，正常装成**
+- **对策：G1 的 pip 步骤必须在你自己的 PowerShell 窗口里跑**，不要在 DSH 会话里跑。若确实要我代跑，需批准一次不受限执行
+- 副作用：pip 失败时会在目标位置留下连 `git status` 都打不开的临时目录，只能在不受限模式下删除
+
+**9. `curl.exe` 无法访问 HTTPS（会误导网络排查）**
+
+- 症状：`curl.exe https://pypi.org/simple/` 返回 `HTTP=000`，`-v` 显示 `schannel: AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS (0x8009030e)`
+- 原因：curl 的 Windows TLS 后端取不到凭据。**只有 curl 受影响**
+- ⚠️ **这绝不代表网络不通**：同一时刻 DNS 解析正常、443 端口 TCP 连通、`pip` 直连官方 PyPI 正常
+- 排查网络请用 `pip` / 浏览器 / `ssh`，**不要用 curl 下结论**
+
 ## 两条边界（设计，不是故障）
 
 1. **权限**：本会话是 `workspace-write` + 逐次批准。`D:\Agent_test` 内可写，**区外只读**，越界会弹批准。
