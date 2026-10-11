@@ -1,52 +1,58 @@
-"""阶段 0 · 第 2 步：定义工具（schema + 真实实现），让模型返回一次 tool_calls。
+"""阶段 0 · 第 3 步：工具注册表 + dispatch —— 把「模型的请求」变成「一段文本观察」。
 
-这一步最重要的认知，请先记住这一句：
+第 2 步我们只让模型"说出"它想调什么，没有执行。这一步补上执行。
+（第 2 步那个只打印 tool_calls 的探针已被 agent.py 完整取代，故移除。）
 
-    **模型不会执行任何东西。**
+三条铁律（第 3 步的全部内容）：
 
-它只是输出一段文本，内容形如「我想调用 read_file，参数是 {"path": "..."}」。
-模型看不见这个文件里的 `read_file()` 函数，也永远不会调用它 ——
-那个函数是给**你的 dispatch** 调用的。
+  1. **dispatch 一律返回字符串，绝不向外抛异常。**
+     模型是靠读文本改变策略的；抛出异常等于把它掐断，它就没机会换条路。
 
-所以本步的演示故意在拿到 tool_calls 之后就停下，**不执行任何工具**。
-执行是第 3 步的事。
+  2. **校验必须发生在调用之前。**
+     SDK 自己在 `Function.arguments` 的文档里警告过：
+     "the model does not always generate valid JSON, and may hallucinate
+      parameters not defined by your function schema. Validate the arguments
+      in your code before calling your function."
+     —— 所以"参数 JSON 解析失败""参数名不存在""缺必填参数"都不是理论风险。
 
-运行：
+  3. **schema 与校验规则只能有一个数据源。**
+     下面用 ToolSpec 同时生成「给模型看的 schema」和「dispatch 用的校验」。
+     如果手工维护两份，第 5、8 步再加工具时必然不一致 ——
+     而不一致的后果是：模型按 schema 填参数，dispatch 却把它判为非法。
+
+运行（纯本地，不发 API 请求）：
     mini-agent\\.venv\\Scripts\\python.exe mini-agent\\tools.py
 """
 
 from __future__ import annotations
 
-import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 # Windows 上 stdout 被重定向时 Python 会退回 GBK，上游按 UTF-8 解码会乱码
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 # 工具路径的基准目录 = mini-agent 目录。
-#
-# 为什么现在就把它定死：因为 description 里必须写明「路径相对于哪里」，
-# 否则模型会猜，一猜就错。定成 mini-agent 目录，是为了让 PLAN §4.4 里的
-# 任务文本（"读取 data/handbook.txt"）可以**原样**使用，不需要加前缀。
+# 这样 PLAN §4.4 的任务文本（"读取 data/handbook.txt"）可以原样使用。
 ROOT = Path(__file__).resolve().parent
 MAX_CHARS = 2000
 
 
 def _resolve(path: str) -> Path:
-    """把工具收到的相对路径解析成绝对路径，并拒绝越出工作区。"""
+    """把工具收到的相对路径解析成绝对路径，并拒绝越出 mini-agent 目录。"""
     target = (ROOT / path).resolve()
     if target != ROOT and ROOT not in target.parents:
-        raise PermissionError(f"路径越界：{path} 不在工作区内")
+        raise PermissionError(f"路径越界：{path} 不在 mini-agent 目录内")
     return target
 
 
 def read_file(path: str) -> str:
     """读取 mini-agent 目录内的一个文本文件。
 
-    ⚠️ 这个函数是给 agent 的 dispatch 调用的。模型看不见它，也执行不了它。
-    模型能看见的，只有下面 TOOLS 里的那段 schema。
+    ⚠️ 这个函数是给 dispatch 调用的。模型看不见它，也执行不了它。
     """
     target = _resolve(path)
     text = target.read_text(encoding="utf-8")
@@ -56,85 +62,142 @@ def read_file(path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 模型能看见的全部内容 —— 就是这个列表
-#
-# 注意它和上面的 read_file() 之间没有任何技术联系：
-# 函数名只是**恰好**和 schema 里的 name 一致，靠的是你的 dispatch 去对应。
-# 换句话说：模型看到的是一张「菜单」，不是一个「函数」。
+# 工具注册表：schema 与校验的唯一数据源
 # ---------------------------------------------------------------------------
-TOOLS: list[dict] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            # description 是模型选不选这个工具的唯一依据。
-            # 它必须回答三件事：做什么、什么时候用、参数怎么填。
-            # ⚠️ 措辞必须和实现的真实边界完全一致：下面 _resolve() 只允许
-            #    mini-agent 目录内的路径，所以这里不能含糊地说「工作区内」，
-            #    否则模型会去试 ../xxx 这种路径，然后收到一个它看不懂的错误。
-            "description": (
-                "读取 mini-agent 目录内的一个文本文件，返回其内容（最多前 2000 字符）。"
-                "当需要知道某个文件里写了什么时使用。"
-                "path 必须是相对 mini-agent 目录的路径，"
-                "例如 'requirements.txt' 或 'data/handbook.txt'。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "相对 mini-agent 目录的文件路径，例如 'requirements.txt'",
-                    }
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    """一个工具的全部信息。"""
+
+    name: str
+    description: str
+    params: dict[str, str]  # 参数名 -> 给模型看的说明
+    required: tuple[str, ...]
+    func: Callable[..., str]
+
+    def schema(self) -> dict:
+        """生成发给模型的 JSON Schema。不手工维护第二份。"""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        p: {"type": "string", "description": d}
+                        for p, d in self.params.items()
+                    },
+                    "required": list(self.required),
                 },
-                "required": ["path"],
             },
-        },
-    }
-]
+        }
+
+    def validate(self, args: object) -> str | None:
+        """校验参数。返回错误说明字符串；None 表示通过。
+
+        注意：现在所有参数都是字符串。将来若出现 int/bool 参数，
+        这里需要按类型扩展 —— 那一步我会明确说明。
+        """
+        if not isinstance(args, dict):
+            return f"参数必须是一个 JSON 对象，收到的是 {type(args).__name__}"
+
+        missing = [k for k in self.required if k not in args]
+        if missing:
+            return f"缺少必填参数 {missing}；本工具需要 {list(self.required)}"
+
+        unknown = [k for k in args if k not in self.params]
+        if unknown:
+            return f"出现 schema 里没有的参数 {unknown}；本工具只接受 {list(self.params)}"
+
+        wrong = [k for k, v in args.items() if not isinstance(v, str)]
+        if wrong:
+            return f"参数 {wrong} 必须是字符串"
+
+        return None
 
 
-def _probe() -> None:
-    """手工探针：发一次带工具定义的请求，看清 tool_calls 长什么样。"""
-    from llm import call_model  # 同目录导入 —— llm.py 就在旁边
+_TOOL_SPECS: tuple[ToolSpec, ...] = (
+    ToolSpec(
+        name="read_file",
+        # description 是模型选不选这个工具的唯一依据，必须和实现的真实边界一致。
+        description=(
+            "读取 mini-agent 目录内的一个文本文件，返回其内容（最多前 2000 字符）。"
+            "当需要知道某个文件里写了什么时使用。"
+            "path 必须是相对 mini-agent 目录的路径，例如 'requirements.txt'。"
+        ),
+        params={"path": "相对 mini-agent 目录的文件路径，例如 'requirements.txt'"},
+        required=("path",),
+        func=read_file,
+    ),
+)
 
-    task = "requirements.txt 里写了什么？"
-    messages = [{"role": "user", "content": task}]
+_REGISTRY: dict[str, ToolSpec] = {spec.name: spec for spec in _TOOL_SPECS}
 
-    print(f"任务           : {task}")
-    print(f"发给模型的工具 : {[t['function']['name'] for t in TOOLS]}\n")
+# 模型能看见的全部内容就是这个列表，它由上面的 ToolSpec 生成
+TOOLS: list[dict] = [spec.schema() for spec in _TOOL_SPECS]
 
-    resp = call_model(messages, TOOLS)
-    msg = resp.choices[0].message
 
-    print("=== 模型这次返回了什么 ===")
-    print(f"finish_reason : {resp.choices[0].finish_reason!r}")
-    print(f"content       : {msg.content!r}")
-    print(f"tool_calls    : {len(msg.tool_calls or [])} 个")
+def dispatch(name: str, args: dict) -> str:
+    """执行工具。必须返回字符串；任何异常都转成字符串返回，绝不向外抛。
 
-    if not msg.tool_calls:
-        print("\n模型没有请求调用工具。")
-        print("这通常说明 description 写得不够清楚 —— 改 description 再试。")
-        return
+    Args:
+        name: 模型请求的工具名
+        args: 已经解析好的参数字典。JSON 解析由 agent 层负责 ——
+              tools 层不该知道模型输出的线上格式。
+    """
+    spec = _REGISTRY.get(name)
+    if spec is None:
+        return f"ERROR: 没有名为 {name!r} 的工具。可用工具：{sorted(_REGISTRY)}"
 
-    for i, call in enumerate(msg.tool_calls, 1):
-        raw_args = call.function.arguments
-        print(f"\n--- 第 {i} 个工具调用 ---")
-        print(f"  id（服务端生成，你不能自己编）: {call.id}")
-        print(f"  type                          : {call.type!r}")
-        print(f"  function.name                 : {call.function.name!r}")
-        print(f"  function.arguments（是字符串）: {raw_args!r}")
-        try:
-            print(f"  解析成 dict 之后              : {json.loads(raw_args)}")
-        except json.JSONDecodeError as exc:
-            print(f"  解析失败（模型给了非法 JSON）  : {exc}")
+    problem = spec.validate(args)
+    if problem is not None:
+        return f"ERROR: 参数不合法 —— {problem}"
 
-    print("\n=== 到此为止 ===")
-    print("我没有执行 read_file。模型只是输出了一段 JSON 文本，")
-    print("真正去读文件的那行代码，第 3 步才写。")
+    try:
+        result = spec.func(**args)
+    except Exception as exc:  # noqa: BLE001 —— 故意兜住一切，转成文本回喂
+        return f"ERROR: {type(exc).__name__}: {exc}"
 
-    print(f"\n对照：如果你只看 content，你会看到 {msg.content!r}")
-    print("      —— 这就是「不能把响应拍扁成字符串」的直接证据。")
+    if not isinstance(result, str):
+        return f"ERROR: 工具 {name!r} 返回了 {type(result).__name__}，dispatch 只能返回字符串"
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 失败路径自检 —— 第 3 步"测什么"的主要部分
+# ---------------------------------------------------------------------------
+
+_FAILURE_CASES: tuple[tuple[str, str, object], ...] = (
+    ("工具名不存在（模型可能编）", "write_file", {"path": "requirements.txt"}),
+    ("少了必填参数（模型可能漏）", "read_file", {}),
+    (
+        "多了 schema 没有的参数（模型可能编）",
+        "read_file",
+        {"path": "requirements.txt", "encoding": "utf-8"},
+    ),
+    ("参数类型不对（模型可能给数字）", "read_file", {"path": 123}),
+    ("参数根本不是 JSON 对象", "read_file", "requirements.txt"),
+    ("文件不存在（T3 要考的就是这个）", "read_file", {"path": "data/nope.txt"}),
+    ("路径越界（安全边界）", "read_file", {"path": "../README.md"}),
+)
+
+
+def _self_test() -> None:
+    print("=== dispatch 的失败路径自检（全部本地执行，不发 API 请求）===")
+    for label, name, args in _FAILURE_CASES:
+        out = dispatch(name, args)
+        print(f"\n[{label}]")
+        print(f"  dispatch({name!r}, {args!r})")
+        print(f"  -> {out}")
+
+    print("\n=== 正常路径对照 ===")
+    out = dispatch("read_file", {"path": "requirements.txt"})
+    print("  dispatch('read_file', {'path': 'requirements.txt'}) 前 60 字符：")
+    print(f"  -> {out[:60]!r}")
+    print("\n注意每一行都以 ERROR 开头且**没有抛出异常** —— 这就是 dispatch 存在的意义。")
 
 
 if __name__ == "__main__":
-    _probe()
+    _self_test()
