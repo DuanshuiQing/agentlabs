@@ -1,32 +1,48 @@
-"""阶段 0 · 第 4 步：把单轮驱动换成 while 循环 —— 这就是一个完整的 agent 了。
+"""阶段 0 · 第 4 步 + 第 6 步：单轮驱动换成 while 循环，然后把两个出口交代清楚。
 
 第 3 步的代码里，"请求 A → 执行工具" 和 "请求 B" 是**同一段代码的两份拷贝**。
-这一步把拷贝删掉、套上 while，于是它能一直走到模型不再请求工具为止。
+第 4 步把拷贝删掉、套上 while，于是它能一直走到模型不再请求工具为止。
 
 循环体一共四件事，**出口在循环体内部**：
 
     ① resp = call_model(messages, TOOLS)     发请求
-    ② if not msg.tool_calls: return ...      ★ 唯一的正常出口 ★
+    ② if not msg.tool_calls: return ...      ★ 出口 1：唯一的正常出口 ★
     ③ messages.append(assistant_message)     回填 assistant 消息
     ④ messages.append(tool 消息)             回填工具结果
        （然后什么都不写，自然回到 ① —— 这就是"再走一轮"）
 
-⚠️ 关于 max_steps：`while True` 不带上限等于把额度交给模型决定。
-所以这一步就把上限带上。它有两个出口，第二个是安全网：
+两个出口（**这不是进程退出码**，两种情况程序都正常返回、退出码都是 0：
 
     出口 1（正常）：模型不再请求工具，给出最终答案
     出口 2（保护）：步数用完，优雅退出并说明原因
 
-第 6 步会把上限做成可配置，并故意设成 2 来观察出口 2。
+⚠️ `while True` 不带上限等于把额度交给模型决定，所以上限必须有。
+
+第 6 步做了两件事：
+
+  1. **上限可配置**（`--max-steps`），于是"出口 2"能被**故意触发**来验收 ——
+     一个从没被走到过的分支，等于没有测试过。
+  2. **`run()` 返回 `Result` 而不是裸字符串**。原来两个出口都返回 `str`，
+     调用方**分不出**手里的是"模型真的答了"还是"我们伪造的一句失败占位符"。
+     成败必须用字段表达 —— 这是第 5 步那条原则（异常类名不进给模型的文本）
+     的第二次应用：**给人看的文本 / 给程序看的字段，分开**。
+
+顺手补的一处：出口 1 原来在 `append(assistant_message)` **之前** return，
+所以最终答案从来没进过 `messages`（T3 实测：第 3 轮只发出 5 条，末条是 `tool`）。
+现在补上了，`messages` 才是一份完整轨迹 —— 第 7 步要落盘的 JSONL 需要它。
 
 运行：
     mini-agent\\.venv\\Scripts\\python.exe mini-agent\\agent.py
+    mini-agent\\.venv\\Scripts\\python.exe mini-agent\\agent.py T3
+    mini-agent\\.venv\\Scripts\\python.exe mini-agent\\agent.py T1 --max-steps 1   # 故意撞出口 2
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
+from dataclasses import dataclass
 
 # Windows 上 stdout 被重定向时 Python 会退回 GBK，上游按 UTF-8 解码会乱码
 if hasattr(sys.stdout, "reconfigure"):
@@ -38,16 +54,37 @@ from tools import TOOLS, dispatch
 MAX_STEPS = 10
 
 
+@dataclass(frozen=True)
+class Result:
+    """一次运行的结局。
+
+    为什么不用裸字符串：两个出口都返回 `str` 的话，调用方无法分辨
+    "模型真的答了" 和 "我们伪造的失败占位符" —— 失败绝不能长得像成功。
+    阶段 1 的评测脚本要靠 `ok` 统计通过率，靠字符串前缀判断是不可接受的。
+    """
+
+    answer: str  # 给人看的文本
+    ok: bool  # 给程序看的成败
+    steps: int  # 实际用了几轮
+    reason: str  # 出口 1 = 接口给的 finish_reason（'stop' / 'length' …）
+    #              出口 2 = 'max_steps'
+
+
 def assistant_message(msg: object) -> dict:
     """把模型的回复转成可以放回 messages 的 dict。
 
     漏了它，模型就"不记得"自己请求过调用工具，于是会重复请求同一个工具 ——
-    死循环的起点（PLAN §7 避坑第 8 条）。
+    死循环的起点（PLAN §5 避坑第 8 条）。
+
+    ⚠️ `msg.tool_calls` 在**没有**工具调用时是 `None`，不是 `[]`。
+    第 6 步之前这个函数只被"带 tool_calls"的分支调用，所以这个区别看不出来；
+    出口 1 开始把最终回复也补进 messages 之后，它当场炸了：
+        TypeError: 'NoneType' object is not iterable
+    没有工具调用时**不要写 `tool_calls` 这个键** —— 服务端发来的原始消息里就没有它。
     """
-    return {
-        "role": "assistant",
-        "content": msg.content,
-        "tool_calls": [
+    out: dict = {"role": "assistant", "content": msg.content}
+    if msg.tool_calls:
+        out["tool_calls"] = [
             {
                 "id": c.id,
                 "type": c.type,
@@ -57,8 +94,8 @@ def assistant_message(msg: object) -> dict:
                 },
             }
             for c in msg.tool_calls
-        ],
-    }
+        ]
+    return out
 
 
 def execute(call: object) -> str:
@@ -89,22 +126,43 @@ def show(messages: list[dict], title: str) -> None:
             print(f"  [{i}] {role:<10} {m['content']!r}")
 
 
-def run(task: str, max_steps: int = MAX_STEPS) -> str:
-    """跑完整个循环，返回最终答案。"""
+def run(task: str, max_steps: int = MAX_STEPS) -> Result:
+    """跑完整个循环，返回 Result。
+
+    这里**允许**在参数是明显编程错误时 raise（例如 max_steps < 1）。
+    AGENTS.md 那条"绝不抛异常"的硬规矩管的是 `dispatch` —— 工具的执行边界，
+    因为只有模型有能力读着错误文本改策略。`run()` 是我们自己的外层边界，
+    把调用方的低级错误静默吞掉，只会让它更晚暴露。
+    """
+    if max_steps < 1:
+        raise ValueError(f"max_steps 至少要 1，收到 {max_steps}")
+
     messages: list[dict] = [{"role": "user", "content": task}]
 
     for step in range(1, max_steps + 1):
         print(f"\n[第 {step} 轮] 发请求，messages 共 {len(messages)} 条")
         resp = call_model(messages, TOOLS)
         msg = resp.choices[0].message
+        finish = resp.choices[0].finish_reason
         print(
-            f"          <- finish_reason={resp.choices[0].finish_reason!r}  "
+            f"          <- finish_reason={finish!r}  "
             f"content={msg.content!r}  tool_calls={len(msg.tool_calls or [])} 个"
         )
 
-        # ---- 出口 1：模型不再请求工具，这就是最终答案 ----
+        # ---- 出口 1：模型不再请求工具 —— 它答完了 ----
         if not msg.tool_calls:
-            return msg.content or ""
+            # 先把它补进 messages。少了这一步，最终答案就只活在返回值里，
+            # 轨迹永远缺最后一句（第 7 步落 JSONL 时立刻会撞上）。
+            messages.append(assistant_message(msg))
+            show(messages, f"第 {step} 轮后（答案已进轨迹）")
+            return Result(
+                answer=msg.content or "",
+                # ok 同时要求"接口说它正常停了"和"确实拿到了非空文本"：
+                # finish_reason='length' 说明被 max_tokens 截断，答案是不完整的。
+                ok=bool(msg.content) and finish == "stop",
+                steps=step,
+                reason=finish or "stop",
+            )
 
         # ---- 回填 assistant 消息（含它的 content 和 tool_calls）----
         messages.append(assistant_message(msg))
@@ -121,7 +179,14 @@ def run(task: str, max_steps: int = MAX_STEPS) -> str:
 
     # ---- 出口 2：步数用完 ----
     print(f"\n[停止] 已达步数上限 {max_steps}，未能得到最终答案。")
-    return f"[未完成] 达到步数上限 {max_steps}，模型仍在请求工具调用。"
+    print(f"       注意 messages 末条是 {messages[-1]['role']!r}：模型拿到了一次观察，")
+    print("       却再没机会开口。那次工具调用的钱花了，结果被丢掉。")
+    return Result(
+        answer=f"[未完成] 达到步数上限 {max_steps}，模型仍在请求工具调用。",
+        ok=False,
+        steps=max_steps,
+        reason="max_steps",
+    )
 
 
 TASKS = {
@@ -132,8 +197,24 @@ TASKS = {
 }
 
 if __name__ == "__main__":
-    which = sys.argv[1] if len(sys.argv) > 1 else "T1"
-    task = TASKS[which]
-    print(f"[{which}] 任务：{task}")
-    answer = run(task)
-    print(f"\n===== 最终答案 =====\n{answer}")
+    parser = argparse.ArgumentParser(description="阶段 0 agent loop 验收脚本")
+    parser.add_argument("task", nargs="?", default="T1", choices=sorted(TASKS))
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=MAX_STEPS,
+        help="最多允许几轮（默认 %(default)s）",
+    )
+    cli = parser.parse_args()
+    if cli.max_steps < 1:  # 命令行错误就用 argparse 报，别甩一坨 traceback 给人看
+        parser.error("--max-steps 至少要 1")
+
+    print(f"[{cli.task}] 任务：{TASKS[cli.task]}")
+    print(f"        max_steps={cli.max_steps}")
+    result = run(TASKS[cli.task], max_steps=cli.max_steps)
+
+    print("\n===== 结果（四个字段，不是一句话）=====")
+    print(f"  ok     = {result.ok}")
+    print(f"  steps  = {result.steps}")
+    print(f"  reason = {result.reason!r}")
+    print(f"  answer = {result.answer}")
