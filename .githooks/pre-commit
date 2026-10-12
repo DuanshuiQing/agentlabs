@@ -1,0 +1,29 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# 提交前跑 fixture 断言（mini-agent/check_data.py）。
+#
+# 为什么需要这个钩子 —— 它来自一次真实事故：
+#   第 9 步时，一次刻意破坏 fixture 的实验在 roster.txt 里留下了"预算 3800 元"，
+#   随后一条 `git add -A` 把它一起提交了：干扰项里出现了金额，T2 的答案不再唯一。
+#   而 check_data.py **当时就能查出来**，只是没人记得跑。
+#
+#   **一个只能手动运行的检查器，迟早会被忘记。** 所以把它接到"提交"这个
+#   必然发生的动作上，而不是指望人的自觉。
+#
+# 启用方式（每个 clone 各做一次，core.hooksPath 不进版本库）：
+#   git config --local core.hooksPath .githooks
+#
+# 它可以被绕过（`git commit --no-verify`）—— 那是对的：钩子防的是手滑，
+# 不是防人。真要绕过时你心里清楚自己在做什么。
+# ---------------------------------------------------------------------------
+set -e
+
+root=$(git rev-parse --show-toplevel)
+python="$root/mini-agent/.venv/Scripts/python.exe"
+
+if [ ! -x "$python" ]; then
+    echo "pre-commit: 找不到 $python —— 跳过 fixture 检查（venv 没建？）" >&2
+    exit 0
+fi
+
+exec "$python" "$root/mini-agent/check_data.py"

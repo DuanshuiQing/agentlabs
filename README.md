@@ -156,6 +156,19 @@ skill 的发现根由「最近的含 `.git` 的祖先目录」决定，没有 `.
 - ⚠️ **沙箱进程创建的目录在沙箱下删不掉**（`pip-*`、`.tmp\probe-*` 都验证过）；普通临时**文件**可以删。清目录要么用不受限模式，要么在**你自己的 PowerShell 窗口**里删（那里没有沙箱）
 - 本次已完成：`openai 3.28.0`、`python-dotenv 1.2.4`（含 pydantic 2.14.0 / httpx2 2.13.1 / anyio 4.15.1），走清华镜像，镜像已固化进 `.venv\pip.ini`
 
+**11. git 钩子在**本会话的沙箱里跑不起来**（`sh.exe` 无法创建信号管道）**
+
+- 症状：`git commit` 时钩子被触发，但立刻失败——
+  `sh (35560) C:\Program Files\Git\usr\bin\sh.exe: *** fatal error - couldn't create signal pipe, Win32 error 5`
+- 根因：和上面第 6 条（git 自带 MSYS ssh 无法创建信号管道）**是同一个故障**。git 的钩子一律交给自带的 `sh.exe` 执行，而沙箱禁止创建命名管道
+- 后果：**在本会话里，只要配了 `core.hooksPath`，每一次 `git commit` 都会失败**（钩子非零退出 = 提交中止）
+- 修法：本会话提交时用 `git commit --no-verify`，**并把检查串进命令本身**，而不是靠记性：
+  ```powershell
+  .\mini-agent\.venv\Scripts\python.exe mini-agent\check_data.py; if ($LASTEXITCODE -eq 0) { git commit --no-verify -F .tmp\msg.txt }
+  ```
+- ⚠️ **在你自己（沙箱外）的 PowerShell 窗口里，钩子是可以正常工作的** —— 那里 `sh.exe` 不受限。所以 `.githooks/pre-commit` 要留着，它保护的是你的提交
+- 这条钩子的来历：第 9 步真实发生过一次事故 —— 一次刻意破坏 fixture 的实验在 `roster.txt` 留下"预算 3800 元"，随后一条 `git add -A` 把它一起提交了（`490e7da`），T2 的答案不再唯一。而 `check_data.py` 当时就能查出来，**只是没人记得跑**
+
 ## 两条边界（设计，不是故障）
 
 1. **权限**：本会话是 `workspace-write` + 逐次批准。`D:\Agent_test` 内可写，**区外只读**，越界会弹批准。
