@@ -1,8 +1,9 @@
-"""阶段 0 · 第 3 步 + 第 5 步：工具注册表 + dispatch —— 把「模型的请求」变成「一段文本观察」。
+"""阶段 0 · 第 3 / 5 / 7 / 9 步：工具注册表 + dispatch —— 把「模型的请求」变成「一段文本观察」。
 
 第 2 步我们只让模型"说出"它想调什么，没有执行；第 3 步补上执行。
 （第 2 步那个只打印 tool_calls 的探针已被 agent.py 完整取代，故移除。）
-第 5 步只改一件事：**错误文本长什么样**。
+第 5 步改的是**错误文本长什么样**；第 7 步给失败文本搭上结构化字段（`Observation`）；
+第 9 步加**第一个有副作用的工具**，并顺手补上只读侧早就存在的一个安全洞。
 
 三条铁律（第 3 步的全部内容）：
 
@@ -35,6 +36,21 @@
      用 daemon 线程 + join(timeout) 至少保证它不拖住进程退出。
      （不能用 signal.alarm：Windows 上没有 SIGALRM。）
 
+第 9 步补的两条：
+
+  6. **"超时"在只读工具和写工具上不是一回事。**
+     只读工具超时 = 明确失败（最坏白读一遍）。
+     写工具超时 = **结果未知**（可能已经写成功了）。前者可以让模型换条路，
+     后者必须叫它先去确认、别盲目重试。这个分岔由 `ToolSpec.side_effect`
+     驱动 —— 声明式的字段，不靠人记得在每个地方写 if。
+
+  7. **只读工具也会出事：安全边界必须放在路径解析这一个入口。**
+     设计写工具时回头查读侧，发现 `read_file(".env")` 一直能读到密钥
+     （实测 929 字符，含真 key），而它会作为观察文本发回远端服务商。
+     `list_dir` 隐藏点文件，但 `read_file` 没查 —— 于是把黑名单放进 `_resolve`，
+     **所有**工具自动被保护，将来加第 5 个工具也不用有人记得补。
+     和第 3 步那条"只能有一个数据源"是同一种思路。
+
 运行（纯本地，不发 API 请求）：
     mini-agent\\.venv\\Scripts\\python.exe mini-agent\\tools.py
 """
@@ -57,6 +73,21 @@ if hasattr(sys.stdout, "reconfigure"):
 ROOT = Path(__file__).resolve().parent
 MAX_CHARS = 2000
 MAX_ENTRIES = 200  # list_dir 一次最多列多少条（防止把输出冲爆）
+MAX_APPEND = 2000  # append_file 单次写入的字符上限
+
+# ---------------------------------------------------------------------------
+# 敏感文件：**所有**工具都碰不到它们
+#
+# 为什么在第 9 步才补：设计写工具时回头查了一下读侧，发现
+# `read_file(".env")` 一直能读到密钥（实测 929 字符，里面有真 key）。
+# list_dir 隐藏了点文件，但 read_file 没查 —— 于是模型可以把密钥读出来，
+# 作为 tool 观察文本随下一轮请求发回远端。**只读工具也会出事。**
+#
+# 规则故意写得简单甚至略宽（`.env.example` 这个无害模板也一起挡了）：
+# 一条能被人一眼看懂、一次说清的规则，比一条聪明但需要解释的规则可靠。
+# ---------------------------------------------------------------------------
+_SENSITIVE_NAMES = (".env",)
+_SENSITIVE_GLOBS = ("*.key", "*.pem", "credentials*")
 
 
 class PathEscape(PermissionError):
@@ -68,11 +99,37 @@ class PathEscape(PermissionError):
     """
 
 
+class SensitivePath(PermissionError):
+    """路径落在敏感文件上（凭据等）。消息是我们自己写的，可以安全透传。"""
+
+
+class ToolRefused(Exception):
+    """工具**自己**拒绝了这次调用，理由由工具写在消息里。
+
+    这是给"我们亲手抛出的、不含主机路径的"异常留的通用通道。
+    除了它和上面几个自建类，任何异常的原始 message 都不得透传给模型。
+    """
+
+
+def _is_sensitive(target: Path) -> bool:
+    name = target.name.lower()
+    if name in _SENSITIVE_NAMES or name.startswith(".env."):
+        return True
+    return any(target.match(pattern) for pattern in _SENSITIVE_GLOBS)
+
+
 def _resolve(path: str) -> Path:
-    """把工具收到的相对路径解析成绝对路径，并拒绝越出 mini-agent 目录。"""
+    """把工具收到的相对路径解析成绝对路径，并做两道安全拒绝。
+
+    两道边界放在**这一层**，而不是每个工具各写一遍 —— 这样将来加第 5、第 6 个
+    工具时，它们自动被保护，不需要有人记得去补。这是第 3 步那条
+    "只能有一个数据源"的同一种思路：**安全边界也只能有一个入口。**
+    """
     target = (ROOT / path).resolve()
     if target != ROOT and ROOT not in target.parents:
         raise PathEscape(f"路径越界：{path} 不在 mini-agent 目录内")
+    if _is_sensitive(target):
+        raise SensitivePath(f"{path} 属于凭据类敏感文件，不提供给模型")
     return target
 
 
@@ -135,6 +192,40 @@ def list_dir(path: str) -> str:
     return "\n".join(lines)
 
 
+def append_file(path: str, text: str) -> str:
+    """把 text 追加写到 mini-agent 目录内的文件末尾；文件不存在就创建。
+
+    ⚠️ 这是**第一个有副作用的工具**。有副作用意味着三件事都变了：
+
+      1. **超时的语义变了。** 只读工具超时最坏是白读一遍；写工具超时是
+         "**结果未知**" —— 它可能已经写成功了，只是我们没等到回话。
+         所以 ToolSpec.side_effect 会改变超时提示语（见 _describe_failure）：
+         对写工具，不能只说"失败了"，必须说"别盲目重试"。
+      2. **它会被重复执行而效果叠加。** 同一条任务跑 N 次，文件里就累积 N 份。
+         所以 T4 之前必须能把目标文件清掉（见 agent.py 的 reset_artifacts）。
+         前八步所有任务都只读、跑一百次互不影响 —— 这个性质到此为止。
+      3. **它更需要被边界挡住。** 越界与敏感文件都由 _resolve 统一拦下，
+         这个工具一行安全代码都不用自己写。
+
+    写入**逐字节照抄** text，不自动补换行：这样"写进去什么、读回来就是什么"，
+    模型的写后自检才能真的对上。要换行就自己在 text 里带。
+    """
+    if len(text) > MAX_APPEND:
+        # 用我们自己抛的异常，它的消息不含主机路径，可以安全透传给模型
+        raise ToolRefused(f"拒绝写入：内容 {len(text)} 字符，超过上限 {MAX_APPEND} 字符")
+    target = _resolve(path)
+    if target.is_dir():
+        raise IsADirectoryError(f"{path} 是目录，不是文件")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("a", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+    return (
+        f"已追加写入 {path}：本次 {len(text)} 字符，"
+        f"文件现在共 {target.stat().st_size} 字节"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 工具注册表：schema 与校验的唯一数据源
 # ---------------------------------------------------------------------------
@@ -149,6 +240,10 @@ class ToolSpec:
     params: dict[str, str]  # 参数名 -> 给模型看的说明
     required: tuple[str, ...]
     func: Callable[..., str]
+    # 这个工具会不会改变磁盘状态。默认 False（只读）。
+    # 它不是给模型看的（schema() 不输出它），而是给我们自己看的 ——
+    # 超时提示语、能不能重试、要不要重置，都要按这个字段分岔。
+    side_effect: bool = False
 
     def schema(self) -> dict:
         """生成发给模型的 JSON Schema。不手工维护第二份。"""
@@ -218,6 +313,22 @@ _TOOL_SPECS: tuple[ToolSpec, ...] = (
         params={"path": "相对 mini-agent 目录的目录路径，例如 'data'"},
         required=("path",),
         func=list_dir,
+    ),
+    ToolSpec(
+        name="append_file",
+        description=(
+            "把一个字符串**追加**写到 mini-agent 目录内某个文件的末尾（文件不存在就创建）。"
+            "这是唯一会改变磁盘的工具：写完之后请用 read_file 读回来确认写对了。"
+            "每次调用都是追加，不会覆盖原有内容。"
+            "path 必须是相对 mini-agent 目录的路径，例如 'logs/answers.txt'。"
+        ),
+        params={
+            "path": "相对 mini-agent 目录的文件路径，例如 'logs/answers.txt'",
+            "text": "要追加写入的内容，原样写入，不自动加换行",
+        },
+        required=("path", "text"),
+        func=append_file,
+        side_effect=True,
     ),
 )
 
@@ -289,22 +400,37 @@ def _run_tool(spec: ToolSpec, args: dict, timeout: float) -> str:
     return box["value"]
 
 
-def _describe_failure(exc: Exception, name: str, args: object) -> str:
+def _describe_failure(exc: Exception, name: str, args: object, spec: ToolSpec) -> str:
     """把异常翻译成一段**给模型看的**文本。
 
     白名单，不是清洗：只有认得出来的异常才带细节，而且那个细节是用
     **模型自己传进来的相对路径**拼的。认不出来就一句话打发 ——
     原始 message 一概不透传，因为它可能含主机绝对路径。
+
+    需要 `spec` 是为了 ToolTimeout 那一条：同一个超时，在只读工具和
+    有副作用的工具上**后果完全不同**，提示语也必须不同。
     """
     path = args.get("path") if isinstance(args, dict) else None
     at = f"：{path}" if isinstance(path, str) else ""
 
     if isinstance(exc, ToolTimeout):
+        if spec.side_effect:
+            # 写工具超时是"结果未知"，不是"失败"。这句话必须说清楚，
+            # 否则模型会照最自然的直觉去重试，于是写两遍。
+            return (
+                f"工具 {name!r} 超时，超过 {exc.timeout:g} 秒仍未返回。"
+                "⚠️ **结果未知**：它可能已经执行成功了，只是我们没等到回话。"
+                "不要直接重试。先用只读工具（如 read_file）确认当前状态，再决定下一步。"
+            )
         return (
             f"工具 {name!r} 超时，超过 {exc.timeout:g} 秒仍未返回，已放弃等待。"
             "可以换个做法，或如实说明这一步失败了。"
         )
+    if isinstance(exc, ToolRefused):
+        return str(exc)
     if isinstance(exc, PathEscape):  # 必须排在 PermissionError 前面
+        return str(exc)
+    if isinstance(exc, SensitivePath):  # 同上
         return str(exc)
     if isinstance(exc, FileNotFoundError):
         return f"文件不存在{at}（本项目路径都相对 mini-agent 目录写，不带盘符）"
@@ -346,7 +472,7 @@ def dispatch(name: str, args: dict, timeout: float = TOOL_TIMEOUT) -> str:
         # 但它不能丢 —— 搭在 Observation 的车顶上，第 7 步落进 JSONL 供复盘。
         kind = "tool_timeout" if isinstance(exc, ToolTimeout) else "tool_raised"
         return Observation.failure(
-            f"ERROR: {_describe_failure(exc, name, args)}", kind, type(exc).__name__
+            f"ERROR: {_describe_failure(exc, name, args, spec)}", kind, type(exc).__name__
         )
 
     if not isinstance(result, str):
@@ -374,6 +500,12 @@ _FAILURE_CASES: tuple[tuple[str, str, object], ...] = (
     ("文件不存在（T3 要考的就是这个）", "read_file", {"path": "data/nope.txt"}),
     ("路径越界（安全边界）", "read_file", {"path": "../README.md"}),
     ("路径指向目录而不是文件", "read_file", {"path": "data"}),
+    ("敏感文件：凭据不给模型（第 9 步补的洞）", "read_file", {"path": ".env"}),
+    ("敏感文件：模板也一起挡", "read_file", {"path": ".env.example"}),
+    ("对文件调用 list_dir", "list_dir", {"path": "requirements.txt"}),
+    ("append_file 少了 text", "append_file", {"path": "logs/_probe.txt"}),
+    ("append_file 内容过长", "append_file", {"path": "logs/_probe.txt", "text": "x" * 3000}),
+    ("append_file 想写 .env", "append_file", {"path": ".env", "text": "hack"}),
 )
 
 
@@ -393,6 +525,22 @@ _SLOW_SPEC = ToolSpec(
 )
 
 
+def _slow_write_probe(text: str) -> str:
+    """假装在写文件，但会卡住 —— 用来证明"写工具超时"的提示语必须与只读不同。"""
+    time.sleep(5)
+    return f"（自检假的）已写入 {text}"
+
+
+_SLOW_WRITE_SPEC = ToolSpec(
+    name="slow_write_probe",
+    description="自检专用，不会发给模型",
+    params={"text": "写什么"},
+    required=("text",),
+    func=_slow_write_probe,
+    side_effect=True,  # ← 唯一区别
+)
+
+
 def _self_test() -> None:
     seen: list[tuple[str, str]] = []  # (标签, dispatch 的输出) —— 留到最后统一查泄露
 
@@ -404,7 +552,7 @@ def _self_test() -> None:
         assert isinstance(out, Observation), f"{label} 没有带上结构化字段"
         assert isinstance(out, str), f"{label} 破坏了'一律返回字符串'"
         print(f"\n[{label}]")
-        print(f"  dispatch({name!r}, {args!r})")
+        print(f"  dispatch({name!r}, {str(args)[:72]})")
         print(f"  -> {out}")
         print(f"     error_kind={out.error_kind!r}  error_type={out.error_type!r}")
 
@@ -421,6 +569,28 @@ def _self_test() -> None:
     print(f"  模型能看到的工具仍然只有：{[s.name for s in _TOOL_SPECS]}")
     del _REGISTRY[_SLOW_SPEC.name]
 
+    print("\n=== 第 9 步：同样超时，有副作用的工具必须换说法 ===")
+    _REGISTRY[_SLOW_WRITE_SPEC.name] = _SLOW_WRITE_SPEC
+    out = dispatch("slow_write_probe", {"text": "x"}, timeout=0.5)
+    seen.append(("写工具超时", out))
+    print("  dispatch('slow_write_probe', {'text': 'x'}, timeout=0.5)")
+    print(f"  -> {out}")
+    print("  ^^^ 只读工具说'可以换条路'，写工具说'结果未知，别直接重试'。")
+    print("      唯一的区别是 ToolSpec.side_effect —— 声明式的好处就在这里。")
+    del _REGISTRY[_SLOW_WRITE_SPEC.name]
+
+    print("\n=== append_file 正常路径（真写盘，跑完就删）===")
+    probe = ROOT / "logs" / "_selftest_append.txt"
+    probe.unlink(missing_ok=True)
+    print("  " + dispatch("append_file", {"path": "logs/_selftest_append.txt", "text": "第一行\n"}))
+    print("  " + dispatch("append_file", {"path": "logs/_selftest_append.txt", "text": "第二行\n"}))
+    content = probe.read_text(encoding="utf-8")
+    print(f"  读回来：{content!r}")
+    assert content == "第一行\n第二行\n", "追加的结果不对"
+    print("  两次调用的效果**叠**在一起 —— 这就是「有副作用」的字面含义：")
+    print("  同样的调用做两次，世界不是原来的世界。文件已删除。")
+    probe.unlink()
+
     print("\n=== 泄露自检：ERROR 文本里不许出现主机路径 ===")
     suspects = (str(ROOT), str(ROOT.parent), chr(92) * 2)  # chr(92) 就是反斜杠
     leaked = [(label, out) for label, out in seen if any(s in out for s in suspects)]
@@ -430,6 +600,15 @@ def _self_test() -> None:
         print(f"  失败：{len(leaked)} 条输出里出现了主机路径")
     else:
         print(f"  OK：{len(seen)} 条输出里没有一条含有主机路径或双反斜杠")
+
+    print("\n=== 密钥自检：任何观察文本都不许带出 .env 的内容 ===")
+    key_hits = [(label, out) for label, out in seen if "OPENAI_API_KEY" in out or "=sk" in out]
+    for label, out in key_hits:
+        print(f"  [泄露] {label} -> {out[:80]}")
+    if key_hits:
+        print(f"  失败：{len(key_hits)} 条输出带出了凭据内容")
+    else:
+        print("  OK：没有一条输出包含 OPENAI_API_KEY 或 =sk")
 
     print("\n=== 正常路径对照 ===")
     out = dispatch("read_file", {"path": "requirements.txt"})

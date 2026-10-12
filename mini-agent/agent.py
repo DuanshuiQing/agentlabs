@@ -62,7 +62,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from llm import MODEL, call_model
 from runlog import RunLog
-from tools import TOOLS, Observation, dispatch
+from tools import ROOT, TOOLS, Observation, dispatch
 
 MAX_STEPS = 10
 
@@ -283,7 +283,37 @@ TASKS = {
     "T2": "在 data/ 目录里找出记录了本季度 API 预算的那个文件，告诉我金额。",
     # T3：目标文件**故意不存在** —— 验证失败被如实传下去，而不是被编造掩盖
     "T3": "读取 data/handbook-v2.txt 并总结它的内容。",
+    # T4：唯一需要**有副作用**工具的任务 + 写后读校验（题面见 PLAN §2 裁定 8）
+    "T4": "读取 data/handbook.txt，把「项目约定的日志文件名」写入 logs/answers.txt，"
+    "然后读回来确认写对了。",
 }
+
+# 每条任务在跑之前需要清掉的历史产物。
+#
+# 为什么第 9 步才需要它：前八步所有任务都**只读**，跑一百次互不影响，
+# 天然隔离。T4 会写文件，于是"上一次运行的残留"会污染"这一次的结果" ——
+# 而那份残留**必须由跑测试的人清掉**，不能指望模型处理（它甚至不知道有这回事，
+# 任务文本里没提"先删掉旧文件"）。
+#
+# 这就是测试隔离：**有副作用的测试必须能重置。** 阶段 1 跑评测集时，
+# 这件事会从"顺手一行"变成"评测框架的第一个组件"。
+RESET_BEFORE_RUN = {
+    "T4": ("logs/answers.txt",),
+}
+
+def reset_artifacts(which: str) -> None:
+    """跑之前清掉这条任务上次遗留的产物（测试隔离，见 RESET_BEFORE_RUN）。
+
+    放在 `__main__` 这一层而不是 `run()` 里面：`run()` 的职责是"跑一次 agent"
+    （PLAN §4.3 的接口约定），而"为这次测试准备干净的环境"是**跑测试的人**的事。
+    两者混在一起，`run()` 就不再是一个可以随便调用的纯函数了。
+    """
+    for rel in RESET_BEFORE_RUN.get(which, ()):
+        target = ROOT / rel
+        if target.exists():
+            target.unlink()
+            print(f"（已清理上次遗留：{rel}）")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="阶段 0 agent loop 验收脚本")
@@ -300,6 +330,7 @@ if __name__ == "__main__":
 
     print(f"[{cli.task}] 任务：{TASKS[cli.task]}")
     print(f"        max_steps={cli.max_steps}")
+    reset_artifacts(cli.task)
     result = run(TASKS[cli.task], max_steps=cli.max_steps)
 
     print("\n===== 结果（四个字段，不是一句话）=====")
