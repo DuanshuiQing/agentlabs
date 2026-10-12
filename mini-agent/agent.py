@@ -1,4 +1,4 @@
-"""阶段 0 · 第 4 步 + 第 6 步：单轮驱动换成 while 循环，然后把两个出口交代清楚。
+"""阶段 0 · 第 4 / 6 / 7 步：循环、两个出口、以及把每次运行落成轨迹。
 
 第 3 步的代码里，"请求 A → 执行工具" 和 "请求 B" 是**同一段代码的两份拷贝**。
 第 4 步把拷贝删掉、套上 while，于是它能一直走到模型不再请求工具为止。
@@ -29,7 +29,17 @@
 
 顺手补的一处：出口 1 原来在 `append(assistant_message)` **之前** return，
 所以最终答案从来没进过 `messages`（T3 实测：第 3 轮只发出 5 条，末条是 `tool`）。
-现在补上了，`messages` 才是一份完整轨迹 —— 第 7 步要落盘的 JSONL 需要它。
+现在补上了，`messages` 才是一份完整轨迹。
+
+第 7 步：**每次运行落一份 `logs/run-<时间戳>.jsonl`**（PLAN §4.1 第 6 条）。
+落盘逻辑全在 `runlog.py`，这里只负责在正确的位置调它。两种信息必须进文件，
+而它们**都不在 `messages` 里**：
+
+  · `usage`   —— 三个 token 数。没有它，"第 5 步那段错误文本改短了多少"
+                 永远只是推测；有了它才是实测。
+  · `is_error` / `error_kind` / `error_type` —— 第 5 步特意把异常类名从给模型的
+                 文本里摘走了，说不许丢，要记在轨迹里。它现在挂在
+                 `Observation`（`str` 的子类）上，模型看不见，复盘看得见。
 
 运行：
     mini-agent\\.venv\\Scripts\\python.exe mini-agent\\agent.py
@@ -42,16 +52,35 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from dataclasses import dataclass
+from typing import Any
 
 # Windows 上 stdout 被重定向时 Python 会退回 GBK，上游按 UTF-8 解码会乱码
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from llm import call_model
-from tools import TOOLS, dispatch
+from llm import MODEL, call_model
+from runlog import RunLog
+from tools import TOOLS, Observation, dispatch
 
 MAX_STEPS = 10
+
+
+def usage_of(resp: Any) -> dict | None:
+    """把 SDK 的 usage 摊成 dict。
+
+    用 `model_dump()` 而不是手挑三个字段：不同的兼容服务会多返回自己的字段
+    （比如缓存命中数），摊开全记下来，将来想算什么都还有料。
+    但累加时只看那三个标准字段 —— 不认识的字段不能参与求和。
+    """
+    usage = getattr(resp, "usage", None)
+    if usage is None:
+        return None
+    dump = getattr(usage, "model_dump", None)
+    if dump is None:
+        return None
+    return dump(exclude_none=True)
 
 
 @dataclass(frozen=True)
@@ -103,12 +132,20 @@ def execute(call: object) -> str:
 
     职责分工：JSON 字符串 -> dict 的解析留在 **agent 层**，
     因为那是"模型输出的线上格式"，属于协议；tools.py 不该知道协议。
+
+    返回值仍然是 `str`，失败时是 `Observation`（`str` 的子类）——
+    所以这里也要按第 7 步的规矩带上 error_kind / error_type，
+    不能因为"这个错误是 agent 层发现的"就漏掉结构化信息。
     """
     raw = call.function.arguments
     try:
         args = json.loads(raw)
     except json.JSONDecodeError as exc:
-        return f"ERROR: 工具参数不是合法 JSON（{exc}）；原始文本：{raw[:200]!r}"
+        return Observation.failure(
+            f"ERROR: 工具参数不是合法 JSON（{exc}）；原始文本：{raw[:200]!r}",
+            "bad_arguments",
+            "JSONDecodeError",
+        )
     return dispatch(call.function.name, args)
 
 
@@ -127,66 +164,116 @@ def show(messages: list[dict], title: str) -> None:
 
 
 def run(task: str, max_steps: int = MAX_STEPS) -> Result:
-    """跑完整个循环，返回 Result。
+    """跑完整个循环，返回 Result，并把整条轨迹落进 `logs/run-<时间戳>.jsonl`。
 
     这里**允许**在参数是明显编程错误时 raise（例如 max_steps < 1）。
     AGENTS.md 那条"绝不抛异常"的硬规矩管的是 `dispatch` —— 工具的执行边界，
     因为只有模型有能力读着错误文本改策略。`run()` 是我们自己的外层边界，
     把调用方的低级错误静默吞掉，只会让它更晚暴露。
+
+    用 `with RunLog(...)` 包住：中途崩了，`__exit__` 也会补一条 `role='result'`
+    的崩溃行。"没有 trace 的实验等于没做" —— 而失败恰恰是最需要 trace 的时候。
     """
     if max_steps < 1:
         raise ValueError(f"max_steps 至少要 1，收到 {max_steps}")
 
-    messages: list[dict] = [{"role": "user", "content": task}]
+    with RunLog(task=task, model=MODEL, max_steps=max_steps) as log:
+        print(f"轨迹：{log.path}")
+        messages: list[dict] = [{"role": "user", "content": task}]
+        log.message(step=0, role="user", content=task)
 
-    for step in range(1, max_steps + 1):
-        print(f"\n[第 {step} 轮] 发请求，messages 共 {len(messages)} 条")
-        resp = call_model(messages, TOOLS)
-        msg = resp.choices[0].message
-        finish = resp.choices[0].finish_reason
-        print(
-            f"          <- finish_reason={finish!r}  "
-            f"content={msg.content!r}  tool_calls={len(msg.tool_calls or [])} 个"
-        )
+        for step in range(1, max_steps + 1):
+            print(f"\n[第 {step} 轮] 发请求，messages 共 {len(messages)} 条")
+            t0 = time.perf_counter()
+            resp = call_model(messages, TOOLS)
+            model_s = time.perf_counter() - t0
 
-        # ---- 出口 1：模型不再请求工具 —— 它答完了 ----
-        if not msg.tool_calls:
-            # 先把它补进 messages。少了这一步，最终答案就只活在返回值里，
-            # 轨迹永远缺最后一句（第 7 步落 JSONL 时立刻会撞上）。
+            msg = resp.choices[0].message
+            finish = resp.choices[0].finish_reason
+            usage = usage_of(resp)
+            log.note_usage(usage)
+            spent = f"  tokens={usage['total_tokens']}" if usage else ""
+            print(
+                f"          <- finish_reason={finish!r}  "
+                f"content={msg.content!r}  tool_calls={len(msg.tool_calls or [])} 个"
+                f"  {model_s:.2f}s{spent}"
+            )
+
+            # 助手消息先落盘，再判断出口 —— 否则出口 1 那一轮的回复不会进文件
+            log.message(
+                step=step,
+                role="assistant",
+                content=msg.content,
+                finish_reason=finish,
+                tool_calls=[
+                    {"id": c.id, "name": c.function.name, "arguments": c.function.arguments}
+                    for c in (msg.tool_calls or [])
+                ],
+                usage=usage,
+                elapsed_s=round(model_s, 3),
+            )
+
+            # ---- 出口 1：模型不再请求工具 —— 它答完了 ----
+            if not msg.tool_calls:
+                # 先把它补进 messages。少了这一步，最终答案就只活在返回值里，
+                # 轨迹永远缺最后一句。
+                messages.append(assistant_message(msg))
+                show(messages, f"第 {step} 轮后（答案已进轨迹）")
+                result = Result(
+                    answer=msg.content or "",
+                    # ok 同时要求"接口说它正常停了"和"确实拿到了非空文本"：
+                    # finish_reason='length' 说明被 max_tokens 截断，答案不完整。
+                    ok=bool(msg.content) and finish == "stop",
+                    steps=step,
+                    reason=finish or "stop",
+                )
+                log.result(
+                    step=step, content=result.answer, ok=result.ok, reason=result.reason
+                )
+                return result
+
+            # ---- 回填 assistant 消息（含它的 content 和 tool_calls）----
             messages.append(assistant_message(msg))
-            show(messages, f"第 {step} 轮后（答案已进轨迹）")
-            return Result(
-                answer=msg.content or "",
-                # ok 同时要求"接口说它正常停了"和"确实拿到了非空文本"：
-                # finish_reason='length' 说明被 max_tokens 截断，答案是不完整的。
-                ok=bool(msg.content) and finish == "stop",
-                steps=step,
-                reason=finish or "stop",
-            )
 
-        # ---- 回填 assistant 消息（含它的 content 和 tool_calls）----
-        messages.append(assistant_message(msg))
+            # ---- 回填工具结果：每个 tool_call 对应一条 tool 消息 ----
+            for call in msg.tool_calls:
+                t1 = time.perf_counter()
+                observation = execute(call)
+                tool_s = time.perf_counter() - t1
+                messages.append(
+                    {"role": "tool", "tool_call_id": call.id, "content": observation}
+                )
+                print(f"          执行 {call.function.name}(...) -> {observation[:60]!r}")
+                # 这里就是第 5 步欠下的那笔账：类名不进给模型的文本，
+                # 但必须进轨迹。Observation 让这两件事同时成立。
+                failed = isinstance(observation, Observation)
+                log.message(
+                    step=step,
+                    role="tool",
+                    content=observation,
+                    tool_call_id=call.id,
+                    tool_name=call.function.name,
+                    arguments=call.function.arguments,
+                    is_error=failed,
+                    error_kind=observation.error_kind if failed else None,
+                    error_type=observation.error_type if failed else None,
+                    elapsed_s=round(tool_s, 3),
+                )
 
-        # ---- 回填工具结果：每个 tool_call 对应一条 tool 消息 ----
-        for call in msg.tool_calls:
-            observation = execute(call)
-            messages.append(
-                {"role": "tool", "tool_call_id": call.id, "content": observation}
-            )
-            print(f"          执行 {call.function.name}(...) -> {observation[:60]!r}")
+            show(messages, f"第 {step} 轮回填后")
 
-        show(messages, f"第 {step} 轮回填后")
-
-    # ---- 出口 2：步数用完 ----
-    print(f"\n[停止] 已达步数上限 {max_steps}，未能得到最终答案。")
-    print(f"       注意 messages 末条是 {messages[-1]['role']!r}：模型拿到了一次观察，")
-    print("       却再没机会开口。那次工具调用的钱花了，结果被丢掉。")
-    return Result(
-        answer=f"[未完成] 达到步数上限 {max_steps}，模型仍在请求工具调用。",
-        ok=False,
-        steps=max_steps,
-        reason="max_steps",
-    )
+        # ---- 出口 2：步数用完 ----
+        print(f"\n[停止] 已达步数上限 {max_steps}，未能得到最终答案。")
+        print(f"       注意 messages 末条是 {messages[-1]['role']!r}：模型拿到了一次观察，")
+        print("       却再没机会开口。那次工具调用的钱花了，结果被丢掉。")
+        result = Result(
+            answer=f"[未完成] 达到步数上限 {max_steps}，模型仍在请求工具调用。",
+            ok=False,
+            steps=max_steps,
+            reason="max_steps",
+        )
+        log.result(step=max_steps, content=result.answer, ok=result.ok, reason=result.reason)
+        return result
 
 
 TASKS = {

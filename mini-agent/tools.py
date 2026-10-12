@@ -185,6 +185,31 @@ class ToolTimeout(Exception):
         self.timeout = timeout
 
 
+class Observation(str):
+    """一段回喂给模型的观察文本 —— 它同时**是** `str`，所以铁律没有被破坏。
+
+    第 5 步把异常类名从给模型的文本里摘掉了（那是噪声，还可能夹着主机路径）。
+    代价是"**为什么**失败"这个信息在返回值里彻底没了。
+    第 7 步的 JSONL 需要它，于是用 `str` 的子类把结构化字段挂在文本上：
+
+        模型看到的   —— 就是这段字符串本身，一个字符都没变
+        复盘代码看到 —— 还能多读到 error_kind / error_type
+
+    `isinstance(obs, str)` 依然为真，所以 dispatch"一律返回字符串"这条依然成立。
+    这是一个通用手法：**接口的承诺可以保持窄，额外信息搭在车顶上。**
+    """
+
+    error_kind: str | None = None  # 我们自己的词表：稳定、可聚合、可统计
+    error_type: str | None = None  # Python 异常类名：排查时用
+
+    @classmethod
+    def failure(cls, text: str, kind: str, error_type: str | None = None) -> "Observation":
+        obs = cls(text)
+        obs.error_kind = kind
+        obs.error_type = error_type
+        return obs
+
+
 def _run_tool(spec: ToolSpec, args: dict, timeout: float) -> str:
     """跑一次工具，最多等 timeout 秒；超了抛 ToolTimeout。"""
     box: dict = {}
@@ -247,21 +272,30 @@ def dispatch(name: str, args: dict, timeout: float = TOOL_TIMEOUT) -> str:
     """
     spec = _REGISTRY.get(name)
     if spec is None:
-        return f"ERROR: 没有名为 {name!r} 的工具。可用工具：{sorted(_REGISTRY)}"
+        return Observation.failure(
+            f"ERROR: 没有名为 {name!r} 的工具。可用工具：{sorted(_REGISTRY)}",
+            "unknown_tool",
+        )
 
     problem = spec.validate(args)
     if problem is not None:
-        return f"ERROR: 参数不合法 —— {problem}"
+        return Observation.failure(f"ERROR: 参数不合法 —— {problem}", "bad_arguments")
 
     try:
         result = _run_tool(spec, args, timeout)
     except Exception as exc:  # noqa: BLE001 —— 故意兜住一切，转成文本回喂
-        # 注意这里**不打印异常类名**：类名是给复盘用的，第 7 步的 JSONL 里单独记；
-        # 塞进给模型的文本只会变成噪声。
-        return f"ERROR: {_describe_failure(exc, name, args)}"
+        # 注意这里**不把异常类名写进给模型的文本**：那是噪声，还可能夹着主机路径。
+        # 但它不能丢 —— 搭在 Observation 的车顶上，第 7 步落进 JSONL 供复盘。
+        kind = "tool_timeout" if isinstance(exc, ToolTimeout) else "tool_raised"
+        return Observation.failure(
+            f"ERROR: {_describe_failure(exc, name, args)}", kind, type(exc).__name__
+        )
 
     if not isinstance(result, str):
-        return f"ERROR: 工具 {name!r} 返回了 {type(result).__name__}，dispatch 只能返回字符串"
+        return Observation.failure(
+            f"ERROR: 工具 {name!r} 返回了 {type(result).__name__}，dispatch 只能返回字符串",
+            "bad_return_type",
+        )
     return result
 
 
@@ -308,9 +342,13 @@ def _self_test() -> None:
     for label, name, args in _FAILURE_CASES:
         out = dispatch(name, args)
         seen.append((label, out))
+        # 第 7 步新增：文本之外，结构化字段也必须带上 —— JSONL 靠它聚合
+        assert isinstance(out, Observation), f"{label} 没有带上结构化字段"
+        assert isinstance(out, str), f"{label} 破坏了'一律返回字符串'"
         print(f"\n[{label}]")
         print(f"  dispatch({name!r}, {args!r})")
         print(f"  -> {out}")
+        print(f"     error_kind={out.error_kind!r}  error_type={out.error_type!r}")
 
     print("\n=== 超时：PLAN §4.1 第 5 条 ===")
     _REGISTRY[_SLOW_SPEC.name] = _SLOW_SPEC  # 只进 dispatch 的注册表，不进 TOOLS
@@ -320,6 +358,7 @@ def _self_test() -> None:
     elapsed = time.perf_counter() - started
     seen.append(("工具超时", out))
     print(f"  -> {out}")
+    print(f"     error_kind={out.error_kind!r}  error_type={out.error_type!r}")
     print(f"  实际等了 {elapsed:.2f} 秒（不是 5 秒 —— 超时生效）")
     print(f"  模型能看到的工具仍然只有：{[s.name for s in _TOOL_SPECS]}")
     del _REGISTRY[_SLOW_SPEC.name]

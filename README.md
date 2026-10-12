@@ -140,7 +140,12 @@ skill 的发现根由「最近的含 `.git` 的祖先目录」决定，没有 `.
 - 机制：Python `tempfile` 的候选临时目录依次是 `TMPDIR` → `TEMP` → `TMP` → `c:\temp` → `c:\tmp` → `\temp` → `\tmp` → **`os.curdir`（当前工作目录）**。前面全都写不进去时，它会**退回当前工作目录**，于是 pip 的临时文件落在了工作区
 - 实测：
   - 沙箱内写 `%LOCALAPPDATA%\Temp` **被拒**（`PermissionError: [Errno 13]`）
-  - 沙箱内 `tempfile.gettempdir()` 被 DSH 重定向为 `%LOCALAPPDATA%\Temp\dsh-<随机>`（沙箱给的专属可写临时区）
+  - 沙箱内 `tempfile.gettempdir()` 被 DSH 重定向为 `%LOCALAPPDATA%\Temp\dsh-<随机>`
+  - ⚠️ **但那个目录并不能真的当临时区用**（第 7 步实测，修正原先的"专属可写临时区"说法）：
+    `tempfile.TemporaryDirectory()` 在里面 `mkdir` **成功**，紧接着往里写文件就被拒
+    （`PermissionError: [Errno 13]`），退出时 `cleanup()` 也失败（`shutil` 报 `WinError 5`，
+    删不掉自己刚建的目录）。**结论：临时目录一律放在工作区内**，不要指望 DSH 的 Temp。
+    `mini-agent/runlog.py` 的自检就是为此把临时目录改成 `logs/_selftest/`
   - 强制 `TMPDIR` 后 `gettempdir()` 变成指定目录，**根目录 0 新增垃圾**（已验证）
 - **修法**：跑 pip 前把临时目录钉在 `.tmp`
   ```powershell
