@@ -279,6 +279,8 @@ def run(task: str, max_steps: int = MAX_STEPS) -> Result:
 TASKS = {
     # T1：单工具、单步 —— 验证循环能正常收口
     "T1": "读取 data/handbook.txt，回答：项目约定的日志文件名是什么？",
+    # T2：多步 —— 必须先用 list_dir 侦察，再从多个候选里挑对文件（PLAN §4.4）
+    "T2": "在 data/ 目录里找出记录了本季度 API 预算的那个文件，告诉我金额。",
     # T3：目标文件**故意不存在** —— 验证失败被如实传下去，而不是被编造掩盖
     "T3": "读取 data/handbook-v2.txt 并总结它的内容。",
 }

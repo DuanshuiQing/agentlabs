@@ -56,6 +56,7 @@ if hasattr(sys.stdout, "reconfigure"):
 # 这样 PLAN §4.4 的任务文本（"读取 data/handbook.txt"）可以原样使用。
 ROOT = Path(__file__).resolve().parent
 MAX_CHARS = 2000
+MAX_ENTRIES = 200  # list_dir 一次最多列多少条（防止把输出冲爆）
 
 
 class PathEscape(PermissionError):
@@ -89,6 +90,49 @@ def read_file(path: str) -> str:
     if len(text) > MAX_CHARS:
         return text[:MAX_CHARS] + f"\n...（已截断，原文件共 {len(text)} 字符）"
     return text
+
+
+def list_dir(path: str) -> str:
+    """列出 mini-agent 目录内某个目录的条目：类型 + 字节数 + 名字。
+
+    ⚠️ 故意**不返回任何文件内容**。三个理由，第 1 条是决定性的：
+
+      1. **内容摘要会泄露答案。** T2 要考的是"先列目录、再读对的文件"。
+         如果摘要里带了金额，模型看完 list_dir 就能直接回答，**根本不用调
+         read_file**。于是 T2 从多步退化成一步，判定显示"通过"，
+         但"读对的文件"这一步压根没发生 —— 通过率虚高，比失败更危险。
+      2. **代价会失控。** 带摘要就得把目录里每个文件都读一遍：一个 O(1) 的
+         操作变成 O(n)，而它的时间预算只有 20 秒（PLAN §4.1）。
+         列 100 个文件的目录 = 读 100 个文件。
+      3. **一个工具只做一件事。** `ls -l` 给元信息，`head` 给内容；
+         想看内容，那有 read_file，而且它有自己的一套边界（截断、越界检查）。
+
+    想看"文件里写了什么"，是 read_file 的职责。这个分工不能糊。
+    """
+    target = _resolve(path)
+    # 先分清"不存在"和"不是目录"：笼统报错会让模型改错方向
+    if not target.exists():
+        raise FileNotFoundError(f"{path} 不存在")
+    if not target.is_dir():
+        raise NotADirectoryError(f"{path} 不是目录")
+
+    # 隐藏项不列：`.env` 里是密钥（连文件名都不给它看）；`.venv` 会把输出冲爆。
+    entries = sorted(
+        (p for p in target.iterdir() if not p.name.startswith(".")),
+        key=lambda p: (not p.is_dir(), p.name),
+    )
+    if not entries:
+        return f"{path} 里没有可见条目（空目录，或只有隐藏项）"
+
+    lines = []
+    for entry in entries[:MAX_ENTRIES]:
+        if entry.is_dir():
+            lines.append(f"{'dir':<4} {'-':>8}  {entry.name}/")
+        else:
+            lines.append(f"{'file':<4} {entry.stat().st_size:>8}  {entry.name}")
+    if len(entries) > MAX_ENTRIES:
+        lines.append(f"...（共 {len(entries)} 个条目，只列了前 {MAX_ENTRIES} 个）")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +204,20 @@ _TOOL_SPECS: tuple[ToolSpec, ...] = (
         params={"path": "相对 mini-agent 目录的文件路径，例如 'requirements.txt'"},
         required=("path",),
         func=read_file,
+    ),
+    ToolSpec(
+        name="list_dir",
+        # description 是模型选不选这个工具的唯一依据。这里必须说清"什么时候用"，
+        # 而不是只说"它是什么" —— 模型是按场景挑工具的。
+        description=(
+            "列出 mini-agent 目录内某个目录有哪些文件和子目录，"
+            "返回每项的类型、字节数和名字（**不含文件内容**）。"
+            "当不确定某个文件是否存在，或面对多个候选文件需要先挑选时，先用它。"
+            "path 必须是相对 mini-agent 目录的路径，例如 'data'。"
+        ),
+        params={"path": "相对 mini-agent 目录的目录路径，例如 'data'"},
+        required=("path",),
+        func=list_dir,
     ),
 )
 
@@ -253,7 +311,7 @@ def _describe_failure(exc: Exception, name: str, args: object) -> str:
     if isinstance(exc, IsADirectoryError):
         return f"{path} 是目录，不是文件，请给出文件路径"
     if isinstance(exc, NotADirectoryError):
-        return f"路径中间有一段不是目录{at}"
+        return f"这里不是目录{at}（也可能路径中间有一段是文件，不是目录）"
     if isinstance(exc, PermissionError):
         return f"读不了{at}（路径必须留在 mini-agent 目录内）"
     if isinstance(exc, UnicodeDecodeError):
