@@ -3,7 +3,8 @@
 第 2 步我们只让模型"说出"它想调什么，没有执行；第 3 步补上执行。
 （第 2 步那个只打印 tool_calls 的探针已被 agent.py 完整取代，故移除。）
 第 5 步改的是**错误文本长什么样**；第 7 步给失败文本搭上结构化字段（`Observation`）；
-第 9 步加**第一个有副作用的工具**，并顺手补上只读侧早就存在的一个安全洞。
+第 9 步加**第一个有副作用的工具**，并顺手补上只读侧早就存在的一个安全洞；
+第 10 步补齐 PLAN §4.3 要求的第 4 个工具 `calculator`（`ast` 白名单，绝不用 `eval`）。
 
 三条铁律（第 3 步的全部内容）：
 
@@ -57,6 +58,9 @@
 
 from __future__ import annotations
 
+import ast
+import math
+import operator
 import sys
 import threading
 import time
@@ -74,6 +78,11 @@ ROOT = Path(__file__).resolve().parent
 MAX_CHARS = 2000
 MAX_ENTRIES = 200  # list_dir 一次最多列多少条（防止把输出冲爆）
 MAX_APPEND = 2000  # append_file 单次写入的字符上限
+
+# calculator 的三道闸。**这个工具没有 I/O，唯一的风险是被算爆。**
+CALC_MAX_CHARS = 200  # 表达式长度上限
+CALC_MAX_ABS = 10**15  # 每一步结果的绝对值上限
+CALC_MAX_POW = 1000  # ** 的指数上限
 
 # ---------------------------------------------------------------------------
 # 敏感文件：**所有**工具都碰不到它们
@@ -190,6 +199,109 @@ def list_dir(path: str) -> str:
     if len(entries) > MAX_ENTRIES:
         lines.append(f"...（共 {len(entries)} 个条目，只列了前 {MAX_ENTRIES} 个）")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# calculator：唯一一个"没有 I/O，却依然危险"的工具
+#
+# PLAN §4.3 的硬要求是「用 ast 白名单，**绝不用 eval()**」。为什么这不只是洁癖：
+#
+#   eval("__import__('os').system('...')")   ← 一行就能执行任意命令
+#
+# 而它的风险面跟另外三个工具**完全不同**：read_file/list_dir/append_file 的危险
+# 是"碰到不该碰的路径"，靠 _resolve 就挡住了；calculator 不碰任何路径，
+# 它的危险是**被算爆** —— 一个 200 字符的表达式可以让 CPU 或内存跑满。
+# 所以它需要一整套自己的闸门（见下面三道 CALC_* 常量）。
+# ---------------------------------------------------------------------------
+
+# 白名单：只有这些节点类型是允许的。用 **精确类型** 匹配，不用 isinstance ——
+# isinstance 会把子类放进来，而 ast 的节点继承关系不是为安全设计的。
+_ALLOWED_NODES = frozenset({
+    ast.Expression,
+    ast.BinOp,
+    ast.UnaryOp,
+    ast.Constant,
+    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
+    ast.UAdd, ast.USub,
+})
+
+_BINOPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+}
+
+
+def _guard(value: object) -> int | float:
+    """每一步运算之后的检查。任何不合格的结果当场拒绝。"""
+    # bool 是 int 的子类，必须排在前面单独挡掉：True + True 不该等于 2
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ToolRefused(f"结果不是实数（{type(value).__name__}），拒绝返回")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ToolRefused("结果是 NaN 或无穷大，拒绝返回")
+    if abs(value) > CALC_MAX_ABS:
+        raise ToolRefused(f"数值超出上限 {CALC_MAX_ABS}，拒绝继续计算")
+    return value
+
+
+def _eval_node(node: ast.AST) -> int | float:
+    """在已经通过白名单的语法树上递归求值。
+
+    `isinstance` 在这里是安全的 —— 因为**白名单已经先跑过一遍**，
+    进到这个函数里的节点类型一定是允许的那些。这就是"先拒绝，再求值"：
+    不是边算边祈祷。
+    """
+    if isinstance(node, ast.Constant):
+        return _guard(node.value)
+    if isinstance(node, ast.UnaryOp):
+        operand = _eval_node(node.operand)
+        return _guard(-operand if isinstance(node.op, ast.USub) else +operand)
+    if isinstance(node, ast.BinOp):
+        left = _eval_node(node.left)
+        right = _eval_node(node.right)
+        if isinstance(node.op, ast.Pow) and abs(right) > CALC_MAX_POW:
+            raise ToolRefused(f"指数 {right} 超过上限 {CALC_MAX_POW}，拒绝计算")
+        return _guard(_BINOPS[type(node.op)](left, right))
+    raise ToolRefused(f"不支持 {type(node).__name__}")  # 白名单过了就不该到这里
+
+
+def _format(value: int | float) -> str:
+    """4/2 显示成 2 而不是 2.0 —— 模型和人都不需要那个小数点。"""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return f"{value:g}" if isinstance(value, float) else str(value)
+
+
+def calculator(expr: str) -> str:
+    """算一个纯算术表达式。只支持数字、括号和 + - * / // % **。
+
+    三道闸，按代价从低到高排：
+      1. 长度上限（解析前就挡，最便宜）
+      2. 节点类型白名单（解析后走一遍，**先拒绝再求值**）
+      3. 每一步结果的绝对值上限 + 指数上限（挡 `9**9**9` 这类算爆的）
+
+    返回 `表达式 = 结果` 的形式，把算式一起回喂 —— 这样模型和轨迹里都能看见
+    它到底算了什么，而不是只有一个孤零零的数字。
+    """
+    if len(expr) > CALC_MAX_CHARS:
+        raise ToolRefused(f"表达式 {len(expr)} 字符，超过上限 {CALC_MAX_CHARS} 字符")
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as exc:
+        raise ToolRefused(f"表达式语法错误：{exc.msg}") from None
+
+    for node in ast.walk(tree):
+        if type(node) not in _ALLOWED_NODES:
+            raise ToolRefused(
+                f"表达式里不允许出现 {type(node).__name__}"
+                "（只允许数字、括号和 + - * / // % **）"
+            )
+
+    return f"{expr} = {_format(_eval_node(tree.body))}"
 
 
 def append_file(path: str, text: str) -> str:
@@ -313,6 +425,21 @@ _TOOL_SPECS: tuple[ToolSpec, ...] = (
         params={"path": "相对 mini-agent 目录的目录路径，例如 'data'"},
         required=("path",),
         func=list_dir,
+    ),
+    ToolSpec(
+        name="calculator",
+        # description 要回答"什么时候用它"，而不只是"它是什么"。
+        # 这里刻意加了一句行为引导（"别自己心算"）—— description 就是提示词，
+        # 见复盘 §7 Q3。
+        description=(
+            "计算一个纯算术表达式并返回结果。只支持数字、括号和 + - * / // % ** 运算。"
+            "不做文件或网络访问，纯粹算数。"
+            "需要精确算数（尤其是除法、百分比、多位数相乘）时用它，别自己心算。"
+            "expr 例如 '(3800 - 1200) / 4'。"
+        ),
+        params={"expr": "要计算的算术表达式，例如 '(3800 - 1200) / 4'"},
+        required=("expr",),
+        func=calculator,
     ),
     ToolSpec(
         name="append_file",
@@ -442,6 +569,10 @@ def _describe_failure(exc: Exception, name: str, args: object, spec: ToolSpec) -
         return f"读不了{at}（路径必须留在 mini-agent 目录内）"
     if isinstance(exc, UnicodeDecodeError):
         return f"{path} 不是 UTF-8 文本，读不成文本"
+    if isinstance(exc, ZeroDivisionError):
+        return "除数为零，算不出结果"
+    if isinstance(exc, OverflowError):
+        return "数值太大，超出可计算范围"
     return f"工具 {name!r} 执行失败（{type(exc).__name__}）。原始报错已省略：它可能含主机路径。"
 
 
@@ -506,6 +637,19 @@ _FAILURE_CASES: tuple[tuple[str, str, object], ...] = (
     ("append_file 少了 text", "append_file", {"path": "logs/_probe.txt"}),
     ("append_file 内容过长", "append_file", {"path": "logs/_probe.txt", "text": "x" * 3000}),
     ("append_file 想写 .env", "append_file", {"path": ".env", "text": "hack"}),
+    # --- calculator：这个工具的价值之一，是**能主动构造失败** -------------
+    ("calculator 语法错误", "calculator", {"expr": "1 +"}),
+    ("calculator 除零", "calculator", {"expr": "1/0"}),
+    ("calculator 整除零", "calculator", {"expr": "5//0"}),
+    ("calculator 试图执行代码（白名单的核心用例）", "calculator",
+     {"expr": "__import__('os').system('dir')"}),
+    ("calculator 属性访问", "calculator", {"expr": "(1).__class__"}),
+    ("calculator 变量名", "calculator", {"expr": "x + 1"}),
+    ("calculator 字符串常量", "calculator", {"expr": "'abc'"}),
+    ("calculator 布尔常量", "calculator", {"expr": "True"}),
+    ("calculator 指数爆炸", "calculator", {"expr": "9**9**9"}),
+    ("calculator 结果是复数", "calculator", {"expr": "(-1)**0.5"}),
+    ("calculator 表达式过长", "calculator", {"expr": "1+" * 150 + "1"}),
 )
 
 
@@ -590,6 +734,21 @@ def _self_test() -> None:
     print("  两次调用的效果**叠**在一起 —— 这就是「有副作用」的字面含义：")
     print("  同样的调用做两次，世界不是原来的世界。文件已删除。")
     probe.unlink()
+
+    print("\n=== calculator 正常路径（纯本地，带断言）===")
+    expected = {
+        "2+3*4": "2+3*4 = 14",
+        "(3800 - 1200) / 4": "(3800 - 1200) / 4 = 650",
+        "3800 * 7 / 15": "3800 * 7 / 15 = 1773.33",
+        "2**10": "2**10 = 1024",
+        "7 % 3": "7 % 3 = 1",
+        "2.5 * 4": "2.5 * 4 = 10",
+    }
+    for expr, want in expected.items():
+        got = dispatch("calculator", {"expr": expr})
+        print(f"  {expr:<20} -> {got}")
+        assert got == want, f"{expr}: 期望 {want!r}，得到 {got!r}"
+    print("  6 条全部与手算一致。")
 
     print("\n=== 泄露自检：ERROR 文本里不许出现主机路径 ===")
     suspects = (str(ROOT), str(ROOT.parent), chr(92) * 2)  # chr(92) 就是反斜杠
