@@ -169,6 +169,22 @@ skill 的发现根由「最近的含 `.git` 的祖先目录」决定，没有 `.
 - ⚠️ **在你自己（沙箱外）的 PowerShell 窗口里，钩子是可以正常工作的** —— 那里 `sh.exe` 不受限。所以 `.githooks/pre-commit` 要留着，它保护的是你的提交
 - 这条钩子的来历：第 9 步真实发生过一次事故 —— 一次刻意破坏 fixture 的实验在 `roster.txt` 留下"预算 3800 元"，随后一条 `git add -A` 把它一起提交了（`490e7da`），T2 的答案不再唯一。而 `check_data.py` 当时就能查出来，**只是没人记得跑**
 
+**12. PowerShell 5.1 的 `Get-Content` 不加 `-Encoding UTF8` 会读错 UTF-8 文件**
+
+- 症状：同一个文件，`Get-Content` 数出来的行数和 Python 不一致，中文全是乱码
+- 实测（`mini-agent/agent.py`，15721 字节，UTF-8 无 BOM）：
+
+  | 读法 | 行数 |
+  | --- | --- |
+  | `(Get-Content agent.py).Count`（默认编码） | **267** ❌ |
+  | `(Get-Content agent.py -Raw -Encoding UTF8)` 按 LF 切分 | **341** ✅ |
+  | Python `read_text(encoding="utf-8").splitlines()` | **340** ✅ |
+
+- 根因：PS 5.1 默认按**系统 ANSI 代码页（本机 GBK）**解码，把 UTF-8 的多字节序列解错 ——
+  字符数变少（12385 vs 11383）、部分换行被吃掉
+- **修法**：读文本一律 `-Encoding UTF8`；**核对行数一律以 Python 为准**
+- 教训：**乱码不只是"显示问题"，它会让你量错数。** 写复盘时就先量错过一次行数
+
 ## 两条边界（设计，不是故障）
 
 1. **权限**：本会话是 `workspace-write` + 逐次批准。`D:\Agent_test` 内可写，**区外只读**，越界会弹批准。
