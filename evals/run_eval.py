@@ -76,14 +76,25 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(HERE))
+# `import agent` 要靠它 —— `mini-agent/` 不在 sys.path 里的话，
+# `--plan` 和 `--replay` 都发现不了，因为它们不导入 agent，只有真跑才炸。
+sys.path.insert(0, str(MINI))
 from tasks import BY_ID, MINI_ROOT, PRODUCTS, TASKS, self_check  # noqa: E402
 
 # 工作区里**允许**出现的变更：新增的轨迹。别的一律算"隔离没做好"。
 _ONLY_ALLOWED = re.compile(r"^mini-agent/logs/run-\d{8}-\d{6}(?:-\d+)?\.jsonl$")
+# 产物目录：它们是结果，不是"代码版本"的一部分。
+_OUTPUT_PREFIXES = ("evals/results/",)
 
 
 # ---------------------------------------------------------------------------
 # git：版本标记 + 隔离复查
+#
+# 两个问题，两个作用域 —— 不能混：
+#   * 隔离复查问"被测系统干净吗" → 只看 `mini-agent/`（那里才是模型的可读根）
+#   * 版本标记问"这份结果对应哪版代码" → `mini-agent/` + `evals/` 都要看
+# 曾经把两者合成一个函数，于是改了 `evals/run_eval.py` 之后结果 JSON 里的
+# `git_dirty` 仍然是空 —— 那份通过率看起来像是对应 HEAD 的，其实不是。
 # ---------------------------------------------------------------------------
 
 
@@ -96,10 +107,10 @@ def _git(*args: str) -> str:
     return done.stdout
 
 
-def changed_paths() -> list[str]:
-    """工作区里相对 HEAD 的所有变更路径（含未跟踪）。"""
+def _changed_in(*pathspec: str) -> list[str]:
+    """`git status --porcelain` 里属于这些路径的变更（含未跟踪）。"""
     paths: list[str] = []
-    for line in _git("status", "--porcelain", "mini-agent/").splitlines():
+    for line in _git("status", "--porcelain", *pathspec).splitlines():
         if not line.strip():
             continue
         # 格式是 `XY path`；重命名是 `XY old -> new`，取右边那个
@@ -108,9 +119,28 @@ def changed_paths() -> list[str]:
     return paths
 
 
+def changed_paths() -> list[str]:
+    """**被测系统**内相对 HEAD 的所有变更路径。"""
+    return _changed_in("mini-agent/")
+
+
 def isolation_problems() -> list[str]:
-    """清完产物之后，working tree 里不该剩任何"不是轨迹"的变更。"""
+    """清完产物之后，被测系统里不该剩任何"不是轨迹"的变更。"""
     return [p for p in changed_paths() if not _ONLY_ALLOWED.match(p)]
+
+
+def code_dirty() -> list[str]:
+    """**代码**与 HEAD 不一致的地方 —— 它决定这份结果能不能横向比。
+
+    范围是 `mini-agent/` + `evals/`，排除结果文件和轨迹（那些是产物）。
+    只查 `mini-agent/` 是不够的：改过评测脚本之后，通过率同样不再可比。
+    """
+    dirty = _changed_in("mini-agent/", "evals/")
+    return [
+        p
+        for p in dirty
+        if not _ONLY_ALLOWED.match(p) and not p.startswith(_OUTPUT_PREFIXES)
+    ]
 
 
 def clear_products() -> list[str]:
@@ -417,10 +447,10 @@ def main() -> int:
         "started_at": started.isoformat(timespec="seconds"),
         "finished_at": datetime.now().isoformat(timespec="seconds"),
         "git_rev": _git("rev-parse", "HEAD").strip(),
-        # 只记"非轨迹"的变更：本次运行自己产生的 `run-*.jsonl` 是**预期内**的，
-        # 把它们算成 dirty 会让每份结果都看起来不干净，脏信号就废了。
-        # 这个列表非空 = 被测代码与 HEAD 不一致，那份通过率不能直接横向比。
-        "git_dirty": [p for p in changed_paths() if not _ONLY_ALLOWED.match(p)],
+        # 只记"非轨迹、非结果文件"的变更：本次运行自己产生的 `run-*.jsonl` 是
+        # **预期内**的，把它们算成 dirty 会让每份结果都看起来不干净，脏信号就废了。
+        # 这个列表非空 = 被测代码或评测脚本与 HEAD 不一致，那份通过率不能直接横向比。
+        "git_dirty": code_dirty(),
         "model": _model_name(),
         "max_steps": args.max_steps,
         "n": args.n,
