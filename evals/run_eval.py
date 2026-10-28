@@ -461,7 +461,14 @@ def main() -> int:
         "summary": {**summary, "fail_reason": sorted(summary["fail_reason"])},
     }
     out = RESULTS / f"{'replay' if args.replay else 'real'}-{started:%Y%m%d-%H%M%S}.json"
-    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # newline="\n" 不能省：`write_text` 默认是文本模式，Windows 上会把 `\n` 翻成
+    # `\r\n`，于是结果 JSON 违反 `.gitattributes` 的 `*.json eol=lf`，
+    # 提交时冒出一堆 "CRLF will be replaced by LF"。README 第 13 条。
+    out.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     print(f"\n结果已写入：{out}")
 
     return 0 if summary["pass"] == summary["total_runs"] else 1
