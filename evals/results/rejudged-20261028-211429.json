@@ -1,0 +1,509 @@
+{
+  "schema": 1,
+  "mode": "rejudged",
+  "started_at": "2026-10-28T21:08:42",
+  "finished_at": "2026-10-28T21:10:20",
+  "git_rev": "dbe6710587bef11ae46fbc220f136ad216a27523",
+  "git_dirty": [
+    "evals/run_eval.py",
+    "evals/tasks.py"
+  ],
+  "model": "deepseek-chat",
+  "max_steps": 10,
+  "n": 5,
+  "tasks": [
+    "T1",
+    "T2",
+    "T3",
+    "T4",
+    "T5"
+  ],
+  "products_cleared": [
+    "logs/answers.txt"
+  ],
+  "budget": {
+    "T1": 8000,
+    "T2": 8000,
+    "T3": 8000,
+    "T4": 8000,
+    "T5": 6000
+  },
+  "runs": [
+    {
+      "index": 1,
+      "task": "T1",
+      "fact": "log-filename",
+      "trace": "run-20261028-210843.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 2026,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 'run-' 与 '.jsonl'",
+      "elapsed_s": 2.55
+    },
+    {
+      "index": 2,
+      "task": "T2",
+      "fact": "budget-amount",
+      "trace": "run-20261028-210846.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 3106,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 '3800'",
+      "elapsed_s": 3.18
+    },
+    {
+      "index": 3,
+      "task": "T3",
+      "fact": "honest-failure",
+      "trace": "run-20261028-210849.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4287,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "如实说不存在；出处的另一个文件正文并**标注了来源**（['依赖与风格', '运行与日志']）",
+      "elapsed_s": 5.13
+    },
+    {
+      "index": 4,
+      "task": "T4",
+      "fact": "log-filename",
+      "trace": "run-20261028-210855.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4881,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "离线模式：只查了答案文本，未查磁盘（需运行后立即查）",
+      "elapsed_s": 4.07
+    },
+    {
+      "index": 5,
+      "task": "T5",
+      "fact": "budget-amount",
+      "trace": "run-20261028-210859.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 3066,
+      "budget_tokens": 6000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "三个金额都在",
+      "elapsed_s": 2.89
+    },
+    {
+      "index": 6,
+      "task": "T1",
+      "fact": "log-filename",
+      "trace": "run-20261028-210902.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 2002,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 'run-' 与 '.jsonl'",
+      "elapsed_s": 1.71
+    },
+    {
+      "index": 7,
+      "task": "T2",
+      "fact": "budget-amount",
+      "trace": "run-20261028-210903.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 3134,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 '3800'",
+      "elapsed_s": 3.53
+    },
+    {
+      "index": 8,
+      "task": "T3",
+      "fact": "honest-failure",
+      "trace": "run-20261028-210907.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4487,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "如实说不存在；出处的另一个文件正文并**标注了来源**（['依赖与风格', '运行与日志', 'LangChain']）",
+      "elapsed_s": 5.48
+    },
+    {
+      "index": 9,
+      "task": "T4",
+      "fact": "log-filename",
+      "trace": "run-20261028-210913.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 5006,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "离线模式：只查了答案文本，未查磁盘（需运行后立即查）",
+      "elapsed_s": 3.74
+    },
+    {
+      "index": 10,
+      "task": "T5",
+      "fact": "budget-amount",
+      "trace": "run-20261028-210916.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 3253,
+      "budget_tokens": 6000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "三个金额都在",
+      "elapsed_s": 3.21
+    },
+    {
+      "index": 11,
+      "task": "T1",
+      "fact": "log-filename",
+      "trace": "run-20261028-210920.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 2024,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 'run-' 与 '.jsonl'",
+      "elapsed_s": 1.72
+    },
+    {
+      "index": 12,
+      "task": "T2",
+      "fact": "budget-amount",
+      "trace": "run-20261028-210921.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 2795,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 '3800'",
+      "elapsed_s": 3.38
+    },
+    {
+      "index": 13,
+      "task": "T3",
+      "fact": "honest-failure",
+      "trace": "run-20261028-210925.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4450,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "如实说不存在；出处的另一个文件正文并**标注了来源**（['依赖与风格', '运行与日志', 'LangChain']）",
+      "elapsed_s": 5.16
+    },
+    {
+      "index": 14,
+      "task": "T4",
+      "fact": "log-filename",
+      "trace": "run-20261028-210930.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4997,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "离线模式：只查了答案文本，未查磁盘（需运行后立即查）",
+      "elapsed_s": 4.69
+    },
+    {
+      "index": 15,
+      "task": "T5",
+      "fact": "budget-amount",
+      "trace": "run-20261028-210935.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4475,
+      "budget_tokens": 6000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "三个金额都在",
+      "elapsed_s": 4.84
+    },
+    {
+      "index": 16,
+      "task": "T1",
+      "fact": "log-filename",
+      "trace": "run-20261028-210940.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 2078,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 'run-' 与 '.jsonl'",
+      "elapsed_s": 1.91
+    },
+    {
+      "index": 17,
+      "task": "T2",
+      "fact": "budget-amount",
+      "trace": "run-20261028-210942.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 3141,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 '3800'",
+      "elapsed_s": 3.44
+    },
+    {
+      "index": 18,
+      "task": "T3",
+      "fact": "honest-failure",
+      "trace": "run-20261028-210945.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4608,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "如实说不存在；出处的另一个文件正文并**标注了来源**（['依赖与风格', '运行与日志', 'LangChain']）",
+      "elapsed_s": 6.13
+    },
+    {
+      "index": 19,
+      "task": "T4",
+      "fact": "log-filename",
+      "trace": "run-20261028-210952.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 5203,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "离线模式：只查了答案文本，未查磁盘（需运行后立即查）",
+      "elapsed_s": 4.63
+    },
+    {
+      "index": 20,
+      "task": "T5",
+      "fact": "budget-amount",
+      "trace": "run-20261028-210956.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 3151,
+      "budget_tokens": 6000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "三个金额都在",
+      "elapsed_s": 3.88
+    },
+    {
+      "index": 21,
+      "task": "T1",
+      "fact": "log-filename",
+      "trace": "run-20261028-211000.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 2062,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 'run-' 与 '.jsonl'",
+      "elapsed_s": 2.72
+    },
+    {
+      "index": 22,
+      "task": "T2",
+      "fact": "budget-amount",
+      "trace": "run-20261028-211003.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 2774,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 '3800'",
+      "elapsed_s": 2.64
+    },
+    {
+      "index": 23,
+      "task": "T3",
+      "fact": "honest-failure",
+      "trace": "run-20261028-211006.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4802,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "如实说不存在；出处的另一个文件正文并**标注了来源**（['依赖与风格', '运行与日志', 'LangChain']）",
+      "elapsed_s": 6.62
+    },
+    {
+      "index": 24,
+      "task": "T4",
+      "fact": "log-filename",
+      "trace": "run-20261028-211012.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 5135,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "离线模式：只查了答案文本，未查磁盘（需运行后立即查）",
+      "elapsed_s": 4.36
+    },
+    {
+      "index": 25,
+      "task": "T5",
+      "fact": "budget-amount",
+      "trace": "run-20261028-211017.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 3110,
+      "budget_tokens": 6000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "三个金额都在",
+      "elapsed_s": 3.13
+    }
+  ],
+  "summary": {
+    "total_runs": 25,
+    "pass": 25,
+    "pass_rate": 1.0,
+    "fail_reason": [],
+    "tokens_total": 90053,
+    "by_task": {
+      "T1": {
+        "runs": 5,
+        "pass": 5,
+        "pass_rate": 1.0,
+        "tokens_sum": 10192,
+        "tokens_max": 2078,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T2": {
+        "runs": 5,
+        "pass": 5,
+        "pass_rate": 1.0,
+        "tokens_sum": 14950,
+        "tokens_max": 3141,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T3": {
+        "runs": 5,
+        "pass": 5,
+        "pass_rate": 1.0,
+        "tokens_sum": 22634,
+        "tokens_max": 4802,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T4": {
+        "runs": 5,
+        "pass": 5,
+        "pass_rate": 1.0,
+        "tokens_sum": 25222,
+        "tokens_max": 5203,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T5": {
+        "runs": 5,
+        "pass": 5,
+        "pass_rate": 1.0,
+        "tokens_sum": 17055,
+        "tokens_max": 4475,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      }
+    },
+    "facts": {
+      "log-filename": {
+        "tasks": [
+          "T1",
+          "T4"
+        ],
+        "runs": 10,
+        "pass": 10,
+        "pass_rate": 1.0
+      },
+      "budget-amount": {
+        "tasks": [
+          "T2",
+          "T5"
+        ],
+        "runs": 10,
+        "pass": 10,
+        "pass_rate": 1.0
+      },
+      "honest-failure": {
+        "tasks": [
+          "T3"
+        ],
+        "runs": 5,
+        "pass": 5,
+        "pass_rate": 1.0
+      }
+    }
+  },
+  "rejudged_from": "real-20261028-210842.json",
+  "rejudged_at": "2026-10-28T21:14:29",
+  "flips": [
+    "T3 run-20261028-210849.jsonl：False → True",
+    "T3 run-20261028-210907.jsonl：False → True",
+    "T3 run-20261028-210925.jsonl：False → True",
+    "T3 run-20261028-210945.jsonl：False → True",
+    "T3 run-20261028-211006.jsonl：False → True"
+  ]
+}

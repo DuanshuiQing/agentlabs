@@ -345,6 +345,85 @@ def replay(task, index: int, history: dict[str, list[dict]], max_steps: int) -> 
 
 
 # ---------------------------------------------------------------------------
+# --rejudge：改完断言之后，用**同一批轨迹**重判（零成本）
+#
+# 为什么这件事必须存在：断言可以事后重跑，**运行不能**。
+# 判据错了却重跑一遍，等于为别人的 bug 付钱（上一次是 90053 tokens）。
+# 所以原始结果 `real-*.json` 永不覆盖，重判另存 `rejudged-*.json`，
+# 两份并排摆着 —— 改了哪条、改前改后各是什么，一目了然。
+# ---------------------------------------------------------------------------
+
+
+def answer_of_trace(trace_name: str) -> str:
+    path = MINI / "logs" / trace_name
+    if not path.exists():
+        return ""
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if record.get("role") == "result":
+            return record.get("content") or ""
+    return ""
+
+
+def rejudge(result_path: Path) -> int:
+    old = json.loads(result_path.read_text(encoding="utf-8"))
+    print(f"=== 重判 {result_path.name}（零 API 成本）===")
+    print(f"原判定：{old['summary']['pass']}/{old['summary']['total_runs']}"
+          f"（{old['summary']['pass_rate']:.0%}）\n")
+
+    records: list[dict] = []
+    flips: list[str] = []
+    for run in old["runs"]:
+        task = BY_ID.get(run["task"])
+        if task is None:
+            print(f"  跳过 {run['task']}：任务集里已经没有它了")
+            continue
+        # root=None：**磁盘那半查不了** —— 那次运行的 answers.txt 早被下一次
+        # 前置清理删掉了。离线重判只能查答案文本，这一条要写进报告。
+        assert_ok, why = task.check(answer_of_trace(run["trace"]), None)
+        if assert_ok != run["assert_ok"]:
+            flips.append(f"{run['task']} {run['trace']}：{run['assert_ok']} → {assert_ok}")
+        records.append({**run, "assert_ok": assert_ok, "assert_why": why})
+
+    summary = summarize(records)
+    show_report(summary)
+
+    print("\n[判定翻转]")
+    if flips:
+        for item in flips:
+            print(f"  {item}")
+    else:
+        print("  （没有翻转 —— 断言改动没有影响这批数据）")
+    if any(r["task"] == "T4" for r in records):
+        print("\n⚠️ T4 那条**只重查了答案文本**：磁盘上的 logs/answers.txt 早已被"
+              "\n   下一次前置清理删掉，离线无法复核。原始结果里的磁盘判定仍然有效。")
+
+    payload = {
+        **old,
+        "mode": "rejudged",
+        "rejudged_from": result_path.name,
+        "rejudged_at": datetime.now().isoformat(timespec="seconds"),
+        "git_rev": _git("rev-parse", "HEAD").strip(),
+        "git_dirty": code_dirty(),
+        "runs": records,
+        "summary": {**summary, "fail_reason": sorted(summary["fail_reason"])},
+        "flips": flips,
+    }
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    out = RESULTS / f"rejudged-{datetime.now():%Y%m%d-%H%M%S}.json"
+    out.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    print(f"\n重判结果已写入：{out}")
+    print(f"原始结果保留未动：{result_path.name}")
+    return 0 if summary["pass"] == summary["total_runs"] else 1
+
+
+# ---------------------------------------------------------------------------
 # 入口
 # ---------------------------------------------------------------------------
 
@@ -392,8 +471,22 @@ def main() -> int:
     parser.add_argument("--max-steps", type=int, default=10, help="单次运行的步数上限")
     parser.add_argument("--plan", action="store_true", help="只打印计划，不真跑")
     parser.add_argument("--replay", action="store_true", help="零成本：重放历史答案验证报告管线")
+    parser.add_argument(
+        "--rejudge",
+        metavar="结果JSON",
+        help="零成本：用同一批轨迹、按当前断言重判某份 real-*.json，另存 rejudged-*.json",
+    )
     parser.add_argument("--verbose", action="store_true", help="打印 agent 的过程输出")
     args = parser.parse_args()
+
+    if args.rejudge:
+        target = Path(args.rejudge)
+        if not target.is_absolute():
+            target = (RESULTS / target) if (RESULTS / target).exists() else target
+        if not target.exists():
+            print(f"失败：找不到 {args.rejudge}")
+            return 1
+        return rejudge(target)
 
     wanted = [t.strip() for t in args.tasks.split(",") if t.strip()]
     tasks = [BY_ID[t] for t in wanted] if wanted else list(TASKS)
