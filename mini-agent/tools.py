@@ -199,7 +199,12 @@ def _resolve(path: str) -> Path:
     if _is_sensitive(target):
         raise SensitivePath(f"{path} 属于凭据类敏感文件，不提供给模型")
     if _is_run_trace(target):
-        raise RunTrace(f"{path} 是运行轨迹，不提供给模型")
+        # 故意**不回显路径**（和上面两道不一样）。
+        # 理由：审计器 scan() 的判据是"观察文本里出现真实轨迹名就是泄漏"，
+        # 如果拒绝文本把 `logs/run-xxx.jsonl` 抄一遍，那么**拦截生效这件事本身**
+        # 会被审计器记成一次泄漏 —— 于是只能给判据开例外，而带例外的规则第二天就漏。
+        # 回显在这里也没有信息量：只有一个 path 参数，模型自己知道它要什么。
+        raise RunTrace("该路径是运行轨迹，不提供给模型")
     return target
 
 
