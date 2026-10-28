@@ -185,6 +185,20 @@ skill 的发现根由「最近的含 `.git` 的祖先目录」决定，没有 `.
 - **修法**：读文本一律 `-Encoding UTF8`；**核对行数一律以 Python 为准**
 - 教训：**乱码不只是"显示问题"，它会让你量错数。** 写复盘时就先量错过一次行数
 
+**13. Python 的 `Path.write_text()` 会把 LF 悄悄变成 CRLF**
+
+- 症状：用脚本批量改一个 `.py` 之后，`git add` 冒出
+  `warning: in the working copy of '...', CRLF will be replaced by LF`
+- 根因：`write_text()` 默认 `newline=None` —— 那是**文本模式**，`\n` 会被翻译成
+  `os.linesep`（Windows = `\r\n`）。但 `.gitattributes` 写的是 `*.py eol=lf`
+- 提交进去的 blob 仍是 LF（git 会归一化），**可工作区从此变成 CRLF**，
+  下一次真编辑就会产生"整个文件都改了"的 diff
+- **修法**：改源码用 `write_text(..., newline="\n")`，或用 `write_bytes()` 重写。
+  核对办法：`p.read_bytes().count(b"\r\n")` 必须是 **0**
+- 实测：阶段 1 第 2 步用脚本给 `evals/tasks.py` 插字段，中了一次，**277 处 CRLF**
+- 教训：和上面第 12 条是同一类坑 —— **落盘动作本身会改变你以为是"不变"的东西**。
+  改完源码先量换行符，再 `git add`
+
 ## 两条边界（设计，不是故障）
 
 1. **权限**：本会话是 `workspace-write` + 逐次批准。`D:\Agent_test` 内可写，**区外只读**，越界会弹批准。

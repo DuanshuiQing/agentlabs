@@ -95,6 +95,10 @@ if hasattr(sys.stdout, "reconfigure"):
 # 占位符（T1/T4 的答案本身），不是轨迹名 —— 它不该被当成泄漏。
 _TRACE_NAME = re.compile(r"run-\d{8}-\d{6}(?:-\d+)?\.jsonl")
 
+# 2a 上线后，模型碰轨迹时会收到的拒绝文本（tools.py::RunTrace 的消息）。
+# 它出现在观察里 = **拦截真的被触发过** —— 这是"端到端生效"的唯一硬证据。
+_DENIAL = "是运行轨迹，不提供给模型"
+
 # 拦截上线（阶段 1 第 2 步）之前产生的轨迹。**不许再增加。**
 # 往名单里加一个名字，等于把一次真实的泄漏洗成"历史遗留"，
 # 而这件事在 diff 里看起来只是一行字符串。
@@ -131,6 +135,18 @@ def scan(path: Path) -> list[dict]:
                 "snip": text[start: found.end() + 24].replace("\n", " "),
             })
     return hits
+
+
+def denials(path: Path) -> list[dict]:
+    """拦截真的被触发了几次（模型撞上 RunTrace 的拒绝）。"""
+    out: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if record.get("role") == "tool" and _DENIAL in (record.get("content") or ""):
+            out.append({"step": record.get("step"), "tool": record.get("tool_name")})
+    return out
 
 
 def check_tracked() -> tuple[list[str], int]:
@@ -213,14 +229,18 @@ def main() -> int:
     # ---- 新轨迹：硬约束 ----------------------------------------------
     print(f"[新轨迹] 拦截上线后产生的 {len(fresh)} 份 —— 命中必须为 0")
     problems: list[str] = []
+    denied_total = 0
     for path in fresh:
         hits = scan(path)
+        blocked = denials(path)
+        denied_total += len(blocked)
         if hits:
             problems.append(f"{path.name}：{len(hits)} 处")
             for h in hits:
                 print(f"  ✗ {path.name} step={h['step']} {h['tool']} → {h['name']}")
         else:
-            print(f"  {path.name}  0 处")
+            note = f"，拦截被触发 {len(blocked)} 次" if blocked else "，模型没尝试碰轨迹"
+            print(f"  {path.name}  泄漏 0 处{note}")
     if not fresh:
         print("  （还没有新轨迹 —— 第 3 步跑完基线后这里才会有东西）")
 
@@ -237,8 +257,16 @@ def main() -> int:
 
     if not fresh:
         print("结论：静态检查通过；机制已上线，但还没有新轨迹可供审计 —— 这次只完成了校准。")
+    elif denied_total:
+        print(f"结论：静态检查通过；{len(fresh)} 份新轨迹泄漏 0 处，"
+              f"且拦截被真实触发 {denied_total} 次 —— **端到端生效**。")
     else:
-        print(f"结论：静态检查通过；{len(fresh)} 份新轨迹全部 0 处，隔离生效。")
+        # 别把"模型没去碰"说成"拦住了"。这是本项目最危险的那种通过：
+        # 数据看起来是绿的，但它证明的只是"这一批没出事"。
+        print(f"结论：静态检查通过；{len(fresh)} 份新轨迹泄漏 0 处。")
+        print("      但拦截**一次也没被触发** —— 模型压根没尝试碰轨迹。")
+        print("      所以这批数据只能说明'没泄漏'，不能说明'拦得住'。")
+        print("      端到端验证需要一条会去翻轨迹的运行（见 PLAN §7 第 2 步 2c）。")
     return 0
 
 

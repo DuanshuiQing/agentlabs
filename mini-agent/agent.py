@@ -97,6 +97,8 @@ class Result:
     steps: int  # 实际用了几轮
     reason: str  # 出口 1 = 接口给的 finish_reason（'stop' / 'length' …）
     #              出口 2 = 'max_steps'
+    trace: str = ""  # 这次运行的轨迹文件名（不含目录）。阶段 1 第 2 步加的：
+    #                  评测结果 JSON 必须能指回证据，否则"通过率 0.8"无法复核。
 
 
 def assistant_message(msg: object) -> dict:
@@ -163,7 +165,7 @@ def show(messages: list[dict], title: str) -> None:
             print(f"  [{i}] {role:<10} {m['content']!r}")
 
 
-def run(task: str, max_steps: int = MAX_STEPS) -> Result:
+def run(task: str, max_steps: int = MAX_STEPS, verbose: bool = True) -> Result:
     """跑完整个循环，返回 Result，并把整条轨迹落进 `logs/run-<时间戳>.jsonl`。
 
     这里**允许**在参数是明显编程错误时 raise（例如 max_steps < 1）。
@@ -173,17 +175,22 @@ def run(task: str, max_steps: int = MAX_STEPS) -> Result:
 
     用 `with RunLog(...)` 包住：中途崩了，`__exit__` 也会补一条 `role='result'`
     的崩溃行。"没有 trace 的实验等于没做" —— 而失败恰恰是最需要 trace 的时候。
+
+    `verbose=False` 只关掉**过程打印**，一行轨迹都不少 —— 评测要连跑几十次，
+    每次都刷二三十行会把报告淹掉，而轨迹是证据。两者的取舍不一样。
     """
     if max_steps < 1:
         raise ValueError(f"max_steps 至少要 1，收到 {max_steps}")
 
     with RunLog(task=task, model=MODEL, max_steps=max_steps) as log:
-        print(f"轨迹：{log.path}")
+        if verbose:
+            print(f"轨迹：{log.path}")
         messages: list[dict] = [{"role": "user", "content": task}]
         log.message(step=0, role="user", content=task)
 
         for step in range(1, max_steps + 1):
-            print(f"\n[第 {step} 轮] 发请求，messages 共 {len(messages)} 条")
+            if verbose:
+                print(f"\n[第 {step} 轮] 发请求，messages 共 {len(messages)} 条")
             t0 = time.perf_counter()
             resp = call_model(messages, TOOLS)
             model_s = time.perf_counter() - t0
@@ -192,12 +199,13 @@ def run(task: str, max_steps: int = MAX_STEPS) -> Result:
             finish = resp.choices[0].finish_reason
             usage = usage_of(resp)
             log.note_usage(usage)
-            spent = f"  tokens={usage['total_tokens']}" if usage else ""
-            print(
-                f"          <- finish_reason={finish!r}  "
-                f"content={msg.content!r}  tool_calls={len(msg.tool_calls or [])} 个"
-                f"  {model_s:.2f}s{spent}"
-            )
+            if verbose:
+                spent = f"  tokens={usage['total_tokens']}" if usage else ""
+                print(
+                    f"          <- finish_reason={finish!r}  "
+                    f"content={msg.content!r}  tool_calls={len(msg.tool_calls or [])} 个"
+                    f"  {model_s:.2f}s{spent}"
+                )
 
             # 助手消息先落盘，再判断出口 —— 否则出口 1 那一轮的回复不会进文件
             log.message(
@@ -218,7 +226,8 @@ def run(task: str, max_steps: int = MAX_STEPS) -> Result:
                 # 先把它补进 messages。少了这一步，最终答案就只活在返回值里，
                 # 轨迹永远缺最后一句。
                 messages.append(assistant_message(msg))
-                show(messages, f"第 {step} 轮后（答案已进轨迹）")
+                if verbose:
+                    show(messages, f"第 {step} 轮后（答案已进轨迹）")
                 result = Result(
                     answer=msg.content or "",
                     # ok 同时要求"接口说它正常停了"和"确实拿到了非空文本"：
@@ -226,6 +235,7 @@ def run(task: str, max_steps: int = MAX_STEPS) -> Result:
                     ok=bool(msg.content) and finish == "stop",
                     steps=step,
                     reason=finish or "stop",
+                    trace=log.path.name,
                 )
                 log.result(
                     step=step, content=result.answer, ok=result.ok, reason=result.reason
@@ -243,7 +253,8 @@ def run(task: str, max_steps: int = MAX_STEPS) -> Result:
                 messages.append(
                     {"role": "tool", "tool_call_id": call.id, "content": observation}
                 )
-                print(f"          执行 {call.function.name}(...) -> {observation[:60]!r}")
+                if verbose:
+                    print(f"          执行 {call.function.name}(...) -> {observation[:60]!r}")
                 # 这里就是第 5 步欠下的那笔账：类名不进给模型的文本，
                 # 但必须进轨迹。Observation 让这两件事同时成立。
                 failed = isinstance(observation, Observation)
@@ -260,17 +271,20 @@ def run(task: str, max_steps: int = MAX_STEPS) -> Result:
                     elapsed_s=round(tool_s, 3),
                 )
 
-            show(messages, f"第 {step} 轮回填后")
+            if verbose:
+                show(messages, f"第 {step} 轮回填后")
 
         # ---- 出口 2：步数用完 ----
-        print(f"\n[停止] 已达步数上限 {max_steps}，未能得到最终答案。")
-        print(f"       注意 messages 末条是 {messages[-1]['role']!r}：模型拿到了一次观察，")
-        print("       却再没机会开口。那次工具调用的钱花了，结果被丢掉。")
+        if verbose:
+            print(f"\n[停止] 已达步数上限 {max_steps}，未能得到最终答案。")
+            print(f"       注意 messages 末条是 {messages[-1]['role']!r}：模型拿到了一次观察，")
+            print("       却再没机会开口。那次工具调用的钱花了，结果被丢掉。")
         result = Result(
             answer=f"[未完成] 达到步数上限 {max_steps}，模型仍在请求工具调用。",
             ok=False,
             steps=max_steps,
             reason="max_steps",
+            trace=log.path.name,
         )
         log.result(step=max_steps, content=result.answer, ok=result.ok, reason=result.reason)
         return result

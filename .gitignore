@@ -38,3 +38,8 @@ desktop.ini
 # `read_file("logs/answers.txt")` 就能拿到 T1 的答案，根本不用读 handbook.txt。
 # 而且每次 T4 都会重写它，入库也换不来任何可复现性。
 mini-agent/logs/answers.txt
+
+# `--replay` 的结果是**管线自检**，不是实验数据 —— 不入库。
+# `real-*.json` 反过来要入库：它就是 PLAN §3 要的"通过率结果"。
+# 靠文件名区分，两种结果不会被混淆（JSON 里另有 mode 字段兜底）。
+evals/results/replay-*.json

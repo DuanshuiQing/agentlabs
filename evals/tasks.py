@@ -54,6 +54,10 @@ class Task:
     # 下一条 T1 就能读到它 —— 而它的内容正是 T1 的答案（见 PLAN §5 第 26、27 条）。
     # 正解：**每条运行前做一次全局前置清理**，把"哪些是任务产物"和"哪条任务"解耦。
     # 这里先留着现状，是因为改成全局会动到下面的 self_check 与 verify_offline。
+    fact: str = ""  # 这条任务测的是**哪一组独立事实**。
+    # 为什么需要它：阶段 1 第 1 步的特异性矩阵实测出"5 条任务只覆盖 3 组独立事实"
+    # （T4 的答案必然包含 T1 的、T5 的必然包含 T2 的）。把 5 条当成 5 个独立样本
+    # 去算方差是错的，所以报告必须能按 fact 归组（PLAN §5 第 24 条）。
     budget_tokens: int = 8000  # 成本预算：超过就是异常，要在报告里标出来
 
 
@@ -137,6 +141,7 @@ TASKS: tuple[Task, ...] = (
         method="性质断言（子串）",
         check=_t1,
         fixtures=("data/handbook.txt",),
+        fact="log-filename",
     ),
     Task(
         id="T2",
@@ -145,6 +150,7 @@ TASKS: tuple[Task, ...] = (
         method="性质断言（子串）",
         check=_t2,
         fixtures=("data/budget-Q4.txt", "data/agenda-1020.txt", "data/roster.txt"),
+        fact="budget-amount",
     ),
     Task(
         id="T3",
@@ -153,6 +159,7 @@ TASKS: tuple[Task, ...] = (
         method="性质断言（子串 + 反例排除）",
         check=_t3,
         fixtures=(),  # 这个 fixture 就是"不创建"
+        fact="honest-failure",
     ),
     Task(
         id="T4",
@@ -165,6 +172,7 @@ TASKS: tuple[Task, ...] = (
         check=_t4,
         fixtures=("data/handbook.txt",),
         reset=("logs/answers.txt",),
+        fact="log-filename",  # 和 T1 同一组
     ),
     Task(
         id="T5",
@@ -176,9 +184,20 @@ TASKS: tuple[Task, ...] = (
         method="性质断言（子串 × 3）",
         check=_t5,
         fixtures=("data/budget-Q4.txt",),
+        fact="budget-amount",  # 和 T2 同一组
         budget_tokens=6000,
     ),
 )
+
+# 所有任务的**产物**汇总。运行器在**每一次运行之前**都清这一整份，不按任务挑。
+#
+# 为什么不能按任务挑（PLAN §5 第 27 条）：评测是**交错**跑的（T1..T5 → T1..T5），
+# T4 写下的 logs/answers.txt 会留在盘上，下一条 T1 就能读到它 ——
+# 而那个文件的内容正是 T1 的答案。清"这条任务的产物"在交错的场景下没有任何意义。
+#
+# 从 `reset` 派生而不是另写一份：`reset` 表达的是"这条任务会产出这些"，
+# 这个事实不该有第二个数据源。
+PRODUCTS: tuple[str, ...] = tuple(sorted({rel for task in TASKS for rel in task.reset}))
 
 BY_ID: dict[str, Task] = {t.id: t for t in TASKS}
 BY_PROMPT: dict[str, Task] = {t.prompt: t for t in TASKS}
@@ -229,6 +248,8 @@ def self_check() -> list[str]:
             problems.append(f"{task.id} 没写判定方式")
         if task.budget_tokens <= 0:
             problems.append(f"{task.id} 的成本预算不是正数")
+        if not task.fact.strip():
+            problems.append(f"{task.id} 没写 fact —— 报告无法按「独立事实」归组")
 
         for rel in task.fixtures:
             if not (MINI_ROOT / rel).exists():
@@ -243,5 +264,14 @@ def self_check() -> list[str]:
                 problems.append(f"{task.id} 的 reset 会清掉自己的 fixture：{rel}")
             if not rel.startswith(("logs/", ".tmp/")):
                 problems.append(f"{task.id} 的 reset 指向了不该清的路径：{rel}")
+
+    # 全局前置清理会删掉 PRODUCTS 里的每一项 —— 而它是**所有**任务 reset 的并集。
+    # 于是"A 的产物恰好是 B 的 fixture"这种坑，只在交错跑时才会炸，
+    # 而且表现为"B 偶尔失败"，极难归因。在这里提前拦掉。
+    all_fixtures = {rel for task in TASKS for rel in task.fixtures}
+    for rel in PRODUCTS:
+        if rel in all_fixtures:
+            owners = [t.id for t in TASKS if rel in t.fixtures]
+            problems.append(f"产物 {rel} 同时是 {owners} 的 fixture —— 全局清理会把它删掉")
 
     return problems
