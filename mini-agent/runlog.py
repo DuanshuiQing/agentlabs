@@ -45,6 +45,16 @@ if hasattr(sys.stdout, "reconfigure"):
 
 HERE = Path(__file__).resolve().parent
 LOGS_DIR = HERE / "logs"
+# 轨迹文件的命名形状 —— **"什么算一份轨迹"的唯一数据源**。
+#
+# 两处在用它，而且是两个完全不同的用途：
+#   1. `_new_log_path` 造名字（下面那句 f-string 必须满足它）
+#   2. `tools.py::_is_run_trace` 判断"这个文件是不是测量仪器，不给模型看"
+#
+# 这两处一旦脱钩，后果是**隔离静默失效**：命名改了、拦截规则没改，
+# 于是模型又能读到轨迹，而没有任何东西会报错。所以下面自检里有一条断言
+# 把「造出来的名字」和「这个 glob」钉在一起。
+TRACE_GLOB = "run-*.jsonl"
 _USAGE_KEYS = ("prompt_tokens", "completion_tokens", "total_tokens")
 
 
@@ -165,6 +175,14 @@ if __name__ == "__main__":
         for log in logs:
             print(f"  {log.path.name}")
         assert len({log.path for log in logs}) == 3, "文件名撞了，handbook 第 7 条被破坏"
+
+        # 钉住"造名字"和"什么算轨迹"这两件事：TRACE_GLOB 是 tools.py 用来
+        # 把轨迹挡在模型视野外的判据，命名改了而它没改 = 隔离静默失效。
+        for log in logs:
+            assert log.path.match(TRACE_GLOB), (
+                f"{log.path.name} 不匹配 TRACE_GLOB={TRACE_GLOB!r} —— "
+                "tools.py 靠它判断'这是轨迹'，两者脱钩则隔离失效且不报错"
+            )
 
         print("\n=== 字段齐全 + 换行是 LF ===")
         logs[0].message(step=1, role="assistant", content=None, elapsed_s=0.5)

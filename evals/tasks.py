@@ -49,6 +49,11 @@ class Task:
     check: Check  # 断言本身
     fixtures: tuple[str, ...] = ()  # 依赖哪些 fixture（相对 mini-agent/）
     reset: tuple[str, ...] = ()  # 跑之前要清掉哪些历史产物（测试隔离）
+    # ⚠️ 第 2 步（运行器）要改的一件事：`reset` 现在按任务挂，单条手工跑时够用，
+    # 但评测是交错的（T1..T5 → T1..T5），T4 写下的 `logs/answers.txt` 会留在盘上，
+    # 下一条 T1 就能读到它 —— 而它的内容正是 T1 的答案（见 PLAN §5 第 26、27 条）。
+    # 正解：**每条运行前做一次全局前置清理**，把"哪些是任务产物"和"哪条任务"解耦。
+    # 这里先留着现状，是因为改成全局会动到下面的 self_check 与 verify_offline。
     budget_tokens: int = 8000  # 成本预算：超过就是异常，要在报告里标出来
 
 

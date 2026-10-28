@@ -26,3 +26,15 @@ credentials*
 .idea/
 Thumbs.db
 desktop.ini
+
+# mini-agent 的运行产物 —— **不入库，但它不是垃圾**
+#
+# logs/ 里有两类东西，待遇故意相反（阶段 1 第 2 步审计时定的）：
+#   * run-*.jsonl  轨迹 = **仪器**，必须入库（AGENTS.md 硬规矩 2：没有 trace 的实验等于没做）
+#   * answers.txt  T4 的**任务产物** = 被测物，不入库
+#
+# 为什么产物不能入库：它的内容就是「项目约定的日志文件名：run-<时间戳>.jsonl」——
+# 而那是 T1 的答案原文。一旦入库，一个全新 clone 出来的仓库里
+# `read_file("logs/answers.txt")` 就能拿到 T1 的答案，根本不用读 handbook.txt。
+# 而且每次 T4 都会重写它，入库也换不来任何可复现性。
+mini-agent/logs/answers.txt

@@ -52,6 +52,24 @@
      **所有**工具自动被保护，将来加第 5 个工具也不用有人记得补。
      和第 3 步那条"只能有一个数据源"是同一种思路。
 
+阶段 1 第 2 步补的一条：
+
+  8. **第三类拒绝：路径合法、内容不敏感，但"给了就作弊"。**
+     `logs/run-*.jsonl` 是运行轨迹 —— 上一次运行、甚至本次运行正在写的那份。
+     它是**外部历史**：让本次运行读到任何历史，"每次运行都从同一起点开始"
+     就不成立了，而这正是评测（重复测量）的地基。所以它不该进模型上下文。
+
+     和前两类拒绝**理由不同、后果不同**，因此单独一个异常类：
+       * `PathEscape`    —— 路径**不合法**（越出 mini-agent 目录）→ 位置问题
+       * `SensitivePath` —— 路径合法，内容是**凭据** → 安全问题
+       * `RunTrace`      —— 路径合法、内容也不敏感（就是一段对话记录）
+                            → **测量有效性问题**
+
+     而这一次有两处必须同时改：`_resolve`（挡 `read_file` / `append_file`）
+     **和** `list_dir`（挡"看目录名就推出答案"）。只改 `_resolve` 等于没改 ——
+     因为 `list_dir("logs")` 列出的 `run-20261012-202119.jsonl` 之类，
+     本身就长得跟 T1/T4 的答案 `run-<时间戳>.jsonl` 一模一样。
+
 运行（纯本地，不发 API 请求）：
     mini-agent\\.venv\\Scripts\\python.exe mini-agent\\tools.py
 """
@@ -67,6 +85,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+# 工具层**允许**依赖日志层，方向只有这一个。
+#
+# 因为"什么算一份轨迹"这个知识属于 runlog.py（它才是造轨迹的那个），
+# 在 tools.py 里手写一份 "run-*.jsonl" 就是第 3 步铁律 3 说的"两个数据源" ——
+# 两边不一致时不会报错，只会静默地不再拦截。
+from runlog import LOGS_DIR, TRACE_GLOB
 
 # Windows 上 stdout 被重定向时 Python 会退回 GBK，上游按 UTF-8 解码会乱码
 if hasattr(sys.stdout, "reconfigure"):
@@ -112,6 +137,21 @@ class SensitivePath(PermissionError):
     """路径落在敏感文件上（凭据等）。消息是我们自己写的，可以安全透传。"""
 
 
+class RunTrace(PermissionError):
+    """路径落在一次运行的轨迹上（`logs/run-*.jsonl`）。
+
+    第三个拒绝类，理由和前两个都不同：
+
+      * `PathEscape`    —— 路径**不合法**（位置问题）
+      * `SensitivePath` —— 路径合法，内容是**凭据**（安全问题）
+      * `RunTrace`      —— 路径合法、内容也不敏感（就是一段对话记录），
+                           但给了它，这次评测就**不算数了**（测量有效性问题）
+
+    实测依据（阶段 0 第 9 步，`run-20261012-214245`）：那次运行的模型读了
+    4 份轨迹，其中一份是**它自己正在写的**，还把 T2 的完整题面带进了上下文。
+    """
+
+
 class ToolRefused(Exception):
     """工具**自己**拒绝了这次调用，理由由工具写在消息里。
 
@@ -127,10 +167,29 @@ def _is_sensitive(target: Path) -> bool:
     return any(target.match(pattern) for pattern in _SENSITIVE_GLOBS)
 
 
-def _resolve(path: str) -> Path:
-    """把工具收到的相对路径解析成绝对路径，并做两道安全拒绝。
+def _is_run_trace(target: Path) -> bool:
+    """target 是不是一份**运行轨迹**。
 
-    两道边界放在**这一层**，而不是每个工具各写一遍 —— 这样将来加第 5、第 6 个
+    和 `_is_sensitive` 并列，但**不是它的一个分支** —— 判据完全不同：
+
+      * `_is_sensitive` 问的是"这个内容能不能给模型"（凭据不能）
+      * `_is_run_trace` 问的是"这个文件是不是测量仪器"（仪器不能进被测系统）
+
+    一个文件可以既不敏感又不是仪器（`data/handbook.txt`），也可以敏感而不
+    是仪器（`.env`）。两个问题，两个函数。
+
+    `target.parent == LOGS_DIR` 这个限定不是多余的：`run-*.jsonl` 如果在
+    `data/` 或别处，它就不是轨迹，挡它没有理由，还会让人误以为这条规则在
+    防一件它并不防的事。（`_SENSITIVE_GLOBS` 反过来是**故意**不限目录的：
+    `*.key` 放在哪都不该给模型。）
+    """
+    return target.parent == LOGS_DIR and target.match(TRACE_GLOB)
+
+
+def _resolve(path: str) -> Path:
+    """把工具收到的相对路径解析成绝对路径，并做三道拒绝。
+
+    三道边界放在**这一层**，而不是每个工具各写一遍 —— 这样将来加第 5、第 6 个
     工具时，它们自动被保护，不需要有人记得去补。这是第 3 步那条
     "只能有一个数据源"的同一种思路：**安全边界也只能有一个入口。**
     """
@@ -139,6 +198,8 @@ def _resolve(path: str) -> Path:
         raise PathEscape(f"路径越界：{path} 不在 mini-agent 目录内")
     if _is_sensitive(target):
         raise SensitivePath(f"{path} 属于凭据类敏感文件，不提供给模型")
+    if _is_run_trace(target):
+        raise RunTrace(f"{path} 是运行轨迹，不提供给模型")
     return target
 
 
@@ -174,6 +235,8 @@ def list_dir(path: str) -> str:
          想看内容，那有 read_file，而且它有自己的一套边界（截断、越界检查）。
 
     想看"文件里写了什么"，是 read_file 的职责。这个分工不能糊。
+
+    ⚠️ 另一条规则：**轨迹文件不列。** 见下面过滤那一行。
     """
     target = _resolve(path)
     # 先分清"不存在"和"不是目录"：笼统报错会让模型改错方向
@@ -183,8 +246,16 @@ def list_dir(path: str) -> str:
         raise NotADirectoryError(f"{path} 不是目录")
 
     # 隐藏项不列：`.env` 里是密钥（连文件名都不给它看）；`.venv` 会把输出冲爆。
+    # 轨迹也不列 —— 和"隐藏"同一个道理，但理由不同（见 _is_run_trace）：
+    # `list_dir("logs")` 一旦列出 `run-20261012-202119.jsonl`，模型光看目录名
+    # 就能拼出 T1/T4 的答案 `run-<时间戳>.jsonl`，题目从"读文件找那一行"
+    # 退化成一步。判定会显示"通过"，但被测的那件事压根没发生。
+    #
+    # 副作用：`logs/` 会显示成空目录。**这不是撒谎** —— 全新 clone 出来的仓库里
+    # `logs/` 只有 `.gitkeep`（隐藏项，本来就不列），看起来正好就是空的。
+    # 这正是 `.gitkeep` 存在的理由：git 不跟踪空目录，不占位 logs/ 就会消失。
     entries = sorted(
-        (p for p in target.iterdir() if not p.name.startswith(".")),
+        (p for p in target.iterdir() if not p.name.startswith(".") and not _is_run_trace(p)),
         key=lambda p: (not p.is_dir(), p.name),
     )
     if not entries:
@@ -559,6 +630,8 @@ def _describe_failure(exc: Exception, name: str, args: object, spec: ToolSpec) -
         return str(exc)
     if isinstance(exc, SensitivePath):  # 同上
         return str(exc)
+    if isinstance(exc, RunTrace):  # 同上
+        return str(exc)
     if isinstance(exc, FileNotFoundError):
         return f"文件不存在{at}（本项目路径都相对 mini-agent 目录写，不带盘符）"
     if isinstance(exc, IsADirectoryError):
@@ -633,6 +706,17 @@ _FAILURE_CASES: tuple[tuple[str, str, object], ...] = (
     ("路径指向目录而不是文件", "read_file", {"path": "data"}),
     ("敏感文件：凭据不给模型（第 9 步补的洞）", "read_file", {"path": ".env"}),
     ("敏感文件：模板也一起挡", "read_file", {"path": ".env.example"}),
+    # --- 阶段 1 第 2 步：轨迹是仪器，不是任务输入（第三类拒绝）-------------
+    (
+        "读运行轨迹被拒（模型会去翻历史轨迹，第 9 步实测 4 次）",
+        "read_file",
+        {"path": "logs/run-20261013-212734.jsonl"},
+    ),
+    (
+        "写运行轨迹被拒（轨迹是实验证据，不许覆盖）",
+        "append_file",
+        {"path": "logs/run-20261013-212734.jsonl", "text": "hack"},
+    ),
     ("对文件调用 list_dir", "list_dir", {"path": "requirements.txt"}),
     ("append_file 少了 text", "append_file", {"path": "logs/_probe.txt"}),
     ("append_file 内容过长", "append_file", {"path": "logs/_probe.txt", "text": "x" * 3000}),
@@ -734,6 +818,55 @@ def _self_test() -> None:
     print("  两次调用的效果**叠**在一起 —— 这就是「有副作用」的字面含义：")
     print("  同样的调用做两次，世界不是原来的世界。文件已删除。")
     probe.unlink()
+
+    print("\n=== 阶段 1 第 2 步：轨迹隔离 —— 判据是「任务书有没有要求」 ===")
+    # 前置条件：_is_run_trace 靠 "target.parent == LOGS_DIR" 认轨迹，
+    # 而 LOGS_DIR 来自 runlog.py、target 来自 tools.ROOT。两处若不同源，隔离静默失效。
+    assert ROOT / "logs" == LOGS_DIR, (
+        f"tools.ROOT/'logs'（{ROOT / 'logs'}）与 runlog.LOGS_DIR（{LOGS_DIR}）不同源 —— "
+        "_is_run_trace 会认不出轨迹，且不会有任何报错"
+    )
+    print(f"  两处 logs 目录同源：{LOGS_DIR}")
+    print("  必须挡的（上面 _FAILURE_CASES 里最后两条）：read_file / append_file 碰轨迹 → RunTrace")
+
+    print("\n  必须放行的（同目录、非轨迹 —— 挡错了 T4 会静默失效）：")
+    ans = LOGS_DIR / "answers.txt"
+    made_ans = not ans.exists()
+    if made_ans:
+        ans.write_text("（自检临时写入）\n", encoding="utf-8")
+    try:
+        out = dispatch("read_file", {"path": "logs/answers.txt"})
+        seen.append(("放行 answers.txt", out))
+        print(f"    read_file('logs/answers.txt') -> {out.strip()[:40]!r}")
+        assert not out.startswith("ERROR"), (
+            f"logs/answers.txt 被挡住了 —— T4 要写它、再读回来校验，会静默失效：{out}"
+        )
+    finally:
+        if made_ans:
+            ans.unlink(missing_ok=True)
+
+    print("\n  必须放行的（logs/ 之外的同名文件 —— 挡了就误伤普通文件）：")
+    stray = ROOT / "run-99999999-999999.jsonl"
+    stray.write_text("这不是轨迹，只是一段普通内容\n", encoding="utf-8")
+    try:
+        out = dispatch("read_file", {"path": stray.name})
+        seen.append(("放行同名普通文件", out))
+        print(f"    read_file('{stray.name}') -> {out.strip()[:40]!r}")
+        assert not out.startswith("ERROR"), (
+            f"logs/ 外的 run-*.jsonl 被误伤了 —— _is_run_trace 的目录限定没起作用：{out}"
+        )
+    finally:
+        stray.unlink(missing_ok=True)
+
+    print("\n  list_dir('logs') 也不许列出轨迹（光看目录名就能推出 T1/T4 的答案）：")
+    listing = dispatch("list_dir", {"path": "logs"})
+    seen.append(("list_dir logs", listing))
+    for line in listing.splitlines():
+        print(f"    {line}")
+    assert ".jsonl" not in listing, (
+        f"list_dir('logs') 列出了轨迹 —— 模型据此可直接答出 run-<时间戳>.jsonl：\n{listing}"
+    )
+    print("    没有出现任何 .jsonl —— 轨迹已从目录列表里消失。")
 
     print("\n=== calculator 正常路径（纯本地，带断言）===")
     expected = {
