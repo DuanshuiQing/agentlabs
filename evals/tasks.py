@@ -192,6 +192,11 @@ def _written(needle: str) -> Check:
             return False, f"答案说了 {needle}，但磁盘上的 draft.txt 里找不到"
         return True, f"{why}；磁盘已确认"
 
+    # 把必需串挂出来，让 self_check 的「串之间不许互为子串」能扫到它。
+    # 只挂 `_needs` 的、不挂这里的，等于 T15/T16 两条的断言串**在扫描范围之外** ——
+    # 属性缺失不报错，只会静默少扫两条。这类"没报错所以没人发现"的缺口最难查。
+    check.all_of = (needle,)  # type: ignore[attr-defined]
+
     return check
 
 
@@ -838,16 +843,27 @@ def self_check() -> list[str]:
                 "—— `in answer` 会误命中"
             )
 
-    # ---- 每条断言都必须能在**空答案**上判失败 ----------------------------
-    # 这是最便宜的一条"断言太松"探测器：一个连 `""` 都判通过的断言，
+    # ---- 每条断言都必须能在**无意义答案**上判失败 ------------------------
+    # 这是最便宜的一条"断言太松"探测器：一个连无意义输入都判通过的断言，
     # 跑一万次也只会给你 100% 和零信息（复盘 §6 那类"通过但没测到"）。
+    #
+    # ⚠️ 探针换过一次（PLAN §5 第 47 条）。原来只喂 `""`，但加了「结论行」契约之后
+    # 它**空转**了：`_needs` 第一件事是解析结论行，`""` 里没有结论行 → 直接判失败，
+    # 于是 24 条全部"通过"这条探针，token 逻辑一次都没被执行到。
+    # 实测 `""` / `" "` / `"结论："` / `"结论：—"` 在 24 条上全部判失败 —— 探针永远绿，
+    # 一个 `_needs(())` 那样的空断言它根本抓不到。
+    # 能穿过结论行解析、直达 token 逻辑的输入，必须是**有结论行但内容无用**的那一条。
+    _LOOSE_PROBES = ("", "结论：不知道")
     for task in TASKS:
-        try:
-            ok, why = task.check("", None)
-        except Exception as exc:  # noqa: BLE001 —— 崩了也是问题，要报出来
-            problems.append(f"{task.id} 的断言在空答案上抛异常：{exc!r}")
-            continue
-        if ok:
-            problems.append(f"{task.id} 的断言在空答案上判**通过**（{why}）—— 太松了")
+        for probe in _LOOSE_PROBES:
+            try:
+                ok, why = task.check(probe, None)
+            except Exception as exc:  # noqa: BLE001 —— 崩了也是问题，要报出来
+                problems.append(f"{task.id} 的断言在 {probe!r} 上抛异常：{exc!r}")
+                continue
+            if ok:
+                problems.append(
+                    f"{task.id} 的断言在 {probe!r} 上判**通过**（{why}）—— 太松了"
+                )
 
     return problems
