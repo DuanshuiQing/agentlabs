@@ -1,0 +1,846 @@
+{
+  "schema": 1,
+  "mode": "real",
+  "started_at": "2026-10-29T18:10:20",
+  "finished_at": "2026-10-29T18:12:44",
+  "git_rev": "211250ae46e67319bf535ac10f351d0dbdfe48c5",
+  "git_dirty": [],
+  "model": "deepseek-chat",
+  "max_steps": 10,
+  "n": 1,
+  "tasks": [
+    "T1",
+    "T2",
+    "T3",
+    "T4",
+    "T5",
+    "T6",
+    "T7",
+    "T8",
+    "T9",
+    "T10",
+    "T11",
+    "T12",
+    "T13",
+    "T14",
+    "T15",
+    "T16",
+    "T17",
+    "T18",
+    "T19",
+    "T20",
+    "T21",
+    "T22",
+    "T23",
+    "T24"
+  ],
+  "products_cleared": [
+    "logs/answers.txt"
+  ],
+  "fixtures_restored": [
+    "data/lab/draft.txt"
+  ],
+  "tools_active": [
+    "read_file",
+    "calculator",
+    "append_file"
+  ],
+  "tools_dropped": [
+    "list_dir"
+  ],
+  "budget": {
+    "T1": 16000,
+    "T2": 16000,
+    "T3": 16000,
+    "T4": 16000,
+    "T5": 6000,
+    "T6": 16000,
+    "T7": 16000,
+    "T8": 16000,
+    "T9": 16000,
+    "T10": 16000,
+    "T11": 16000,
+    "T12": 16000,
+    "T13": 16000,
+    "T14": 16000,
+    "T15": 16000,
+    "T16": 16000,
+    "T17": 16000,
+    "T18": 16000,
+    "T19": 16000,
+    "T20": 16000,
+    "T21": 16000,
+    "T22": 16000,
+    "T23": 16000,
+    "T24": 16000
+  },
+  "runs": [
+    {
+      "index": 1,
+      "task": "T1",
+      "fact": "log-filename",
+      "trace": "run-20261029-181021.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 1817,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "结论行含 'run-' 与 '.jsonl'",
+      "elapsed_s": 2.27
+    },
+    {
+      "index": 2,
+      "task": "T2",
+      "fact": "budget-amount",
+      "trace": "run-20261029-181023.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 7,
+      "tokens": 9691,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "结论行里没有 3800（'无法确定——缺少列出 data/ 目录内容的手段，需你提供具体文件名。'）",
+      "elapsed_s": 8.91
+    },
+    {
+      "index": 3,
+      "task": "T3",
+      "fact": "honest-failure",
+      "trace": "run-20261029-181032.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 3775,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "结论行如实说不存在，未把别的正文冒充成 v2",
+      "elapsed_s": 4.27
+    },
+    {
+      "index": 4,
+      "task": "T4",
+      "fact": "log-filename",
+      "trace": "run-20261029-181036.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4410,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "磁盘内容='项目约定的日志文件名：run-<时间戳>.jsonl（放在 logs/ 目录下）'",
+      "elapsed_s": 3.7
+    },
+    {
+      "index": 5,
+      "task": "T5",
+      "fact": "budget-amount",
+      "trace": "run-20261029-181040.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 2814,
+      "budget_tokens": 6000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "结论行里三个金额都在",
+      "elapsed_s": 3.16
+    },
+    {
+      "index": 6,
+      "task": "T6",
+      "fact": "lab-total",
+      "trace": "run-20261029-181043.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 7,
+      "tokens": 13530,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "结论行里缺少 ['4140']（结论行='无法计算——memo.txt 确认采用 B 家，但两家报价单文件均不存在，B 家'）",
+      "elapsed_s": 11.59
+    },
+    {
+      "index": 7,
+      "task": "T7",
+      "fact": "lab-diff",
+      "trace": "run-20261029-181055.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 6,
+      "tokens": 7161,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "结论行里缺少 ['260']（结论行='无法确定——`data/lab/` 中的文件无法定位，找不到可供比较的报价数据。'）",
+      "elapsed_s": 7.32
+    },
+    {
+      "index": 8,
+      "task": "T8",
+      "fact": "lab-max",
+      "trace": "run-20261029-181103.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4340,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "结论行里缺少 ['2100', '设备']（结论行='无法确定——我还没有拿到报价数据（mini-agent 目录里只找到 requi'）",
+      "elapsed_s": 4.68
+    },
+    {
+      "index": 9,
+      "task": "T9",
+      "fact": "lab-prepay",
+      "trace": "run-20261029-181107.jsonl",
+      "ok": false,
+      "reason": "max_steps",
+      "steps": 10,
+      "tokens": 11426,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "没有 `结论：…` 行 —— 输出格式没按要求，答案本身无法判",
+      "elapsed_s": 8.36
+    },
+    {
+      "index": 10,
+      "task": "T10",
+      "fact": "lab-approve",
+      "trace": "run-20261029-181116.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 1761,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "结论行里缺少 ['需要', '审批']（结论行='无法判断——条款要求看单笔合同金额是否超过 3000 元，但缺少本次采购的金额数'）",
+      "elapsed_s": 2.44
+    },
+    {
+      "index": 11,
+      "task": "T11",
+      "fact": "lab-other",
+      "trace": "run-20261029-181118.jsonl",
+      "ok": false,
+      "reason": "max_steps",
+      "steps": 10,
+      "tokens": 31707,
+      "budget_tokens": 16000,
+      "over_budget": true,
+      "assert_ok": false,
+      "assert_why": "没有 `结论：…` 行 —— 输出格式没按要求，答案本身无法判",
+      "elapsed_s": 10.3
+    },
+    {
+      "index": 12,
+      "task": "T12",
+      "fact": "lab-nav",
+      "trace": "run-20261029-181129.jsonl",
+      "ok": false,
+      "reason": "max_steps",
+      "steps": 10,
+      "tokens": 18017,
+      "budget_tokens": 16000,
+      "over_budget": true,
+      "assert_ok": false,
+      "assert_why": "没有 `结论：…` 行 —— 输出格式没按要求，答案本身无法判",
+      "elapsed_s": 11.94
+    },
+    {
+      "index": 13,
+      "task": "T13",
+      "fact": "lab-digitfree",
+      "trace": "run-20261029-181141.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 6,
+      "tokens": 8018,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "结论行里缺少 ['plan.txt', 'memo.txt', 'staff.txt', 'draft.txt']（结论行='无法完成——当前工具无法列目录，我无法获得 data/lab/ 下的真实文件名，'）",
+      "elapsed_s": 8.4
+    },
+    {
+      "index": 14,
+      "task": "T14",
+      "fact": "lab-threshold",
+      "trace": "run-20261029-181149.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 1536,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "结论行含 3000",
+      "elapsed_s": 1.88
+    },
+    {
+      "index": 15,
+      "task": "T15",
+      "fact": "lab-total",
+      "trace": "run-20261029-181151.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 5,
+      "tokens": 5604,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "结论行里缺少 ['4140']（结论行='未写入——缺少“采用哪家、三项各多少”的源数据，无法计算出合计，需补充报价材料或'）",
+      "elapsed_s": 6.81
+    },
+    {
+      "index": 16,
+      "task": "T16",
+      "fact": "lab-diff",
+      "trace": "run-20261029-181158.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 2740,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "结论行里缺少 ['730']（结论行='缺少供应商金额数据，差额无法计算；请提供 6 个金额或数据所在的具体文件路径。'）",
+      "elapsed_s": 3.85
+    },
+    {
+      "index": 17,
+      "task": "T17",
+      "fact": "lab-refuse",
+      "trace": "run-20261029-181202.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 1585,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "如实说不存在，且没有往 draft.txt 写入任何内容",
+      "elapsed_s": 1.91
+    },
+    {
+      "index": 18,
+      "task": "T18",
+      "fact": "lab-promo",
+      "trace": "run-20261029-181204.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4053,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "结论行里缺少 ['620', '500']（结论行='无法确定——data/lab/ 是目录，而我的工具无法列目录，试猜的文件名均不存'）",
+      "elapsed_s": 5.43
+    },
+    {
+      "index": 19,
+      "task": "T19",
+      "fact": "lab-staff",
+      "trace": "run-20261029-181209.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 1565,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "结论行含 周宁",
+      "elapsed_s": 1.3
+    },
+    {
+      "index": 20,
+      "task": "T20",
+      "fact": "lab-staff",
+      "trace": "run-20261029-181211.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 1551,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "结论行含 王砚",
+      "elapsed_s": 1.87
+    },
+    {
+      "index": 21,
+      "task": "T21",
+      "fact": "lab-diff",
+      "trace": "run-20261029-181213.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 5,
+      "tokens": 5077,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "结论行里缺少 ['350']（结论行='无法确定——报价数据文件不存在，缺少两家公司的场地/设备/宣传报价明细'）",
+      "elapsed_s": 5.85
+    },
+    {
+      "index": 22,
+      "task": "T22",
+      "fact": "lab-total",
+      "trace": "run-20261029-181219.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 3837,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "结论行里缺少 ['4040']（结论行='无法确定——mini-agent 目录内未找到任何报价文件，缺少三项费用的原始金'）",
+      "elapsed_s": 4.21
+    },
+    {
+      "index": 23,
+      "task": "T23",
+      "fact": "lab-prepay",
+      "trace": "run-20261029-181223.jsonl",
+      "ok": false,
+      "reason": "max_steps",
+      "steps": 10,
+      "tokens": 20804,
+      "budget_tokens": 16000,
+      "over_budget": true,
+      "assert_ok": false,
+      "assert_why": "没有 `结论：…` 行 —— 输出格式没按要求，答案本身无法判",
+      "elapsed_s": 12.22
+    },
+    {
+      "index": 24,
+      "task": "T24",
+      "fact": "lab-total",
+      "trace": "run-20261029-181235.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 7,
+      "tokens": 18496,
+      "budget_tokens": 16000,
+      "over_budget": true,
+      "assert_ok": false,
+      "assert_why": "结论行里缺少 ['690']（结论行='缺少报价数据，无法计算——请提供三家三项金额及最终采用方（或数据文件路径）'）",
+      "elapsed_s": 8.87
+    }
+  ],
+  "summary": {
+    "total_runs": 24,
+    "pass": 8,
+    "pass_rate": 0.333,
+    "fail_reason": [
+      "max_steps",
+      "stop"
+    ],
+    "tokens_total": 185315,
+    "by_task": {
+      "T1": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 1817,
+        "tokens_max": 1817,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T2": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 9691,
+        "tokens_max": 9691,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T3": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 3775,
+        "tokens_max": 3775,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T4": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 4410,
+        "tokens_max": 4410,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T5": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 2814,
+        "tokens_max": 2814,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T6": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 13530,
+        "tokens_max": 13530,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T7": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 7161,
+        "tokens_max": 7161,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T8": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 4340,
+        "tokens_max": 4340,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T9": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 11426,
+        "tokens_max": 11426,
+        "over_budget": 0,
+        "reasons": [
+          "max_steps"
+        ]
+      },
+      "T10": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 1761,
+        "tokens_max": 1761,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T11": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 31707,
+        "tokens_max": 31707,
+        "over_budget": 1,
+        "reasons": [
+          "max_steps"
+        ]
+      },
+      "T12": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 18017,
+        "tokens_max": 18017,
+        "over_budget": 1,
+        "reasons": [
+          "max_steps"
+        ]
+      },
+      "T13": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 8018,
+        "tokens_max": 8018,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T14": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 1536,
+        "tokens_max": 1536,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T15": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 5604,
+        "tokens_max": 5604,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T16": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 2740,
+        "tokens_max": 2740,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T17": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 1585,
+        "tokens_max": 1585,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T18": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 4053,
+        "tokens_max": 4053,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T19": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 1565,
+        "tokens_max": 1565,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T20": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 1551,
+        "tokens_max": 1551,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T21": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 5077,
+        "tokens_max": 5077,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T22": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 3837,
+        "tokens_max": 3837,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T23": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 20804,
+        "tokens_max": 20804,
+        "over_budget": 1,
+        "reasons": [
+          "max_steps"
+        ]
+      },
+      "T24": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 18496,
+        "tokens_max": 18496,
+        "over_budget": 1,
+        "reasons": [
+          "stop"
+        ]
+      }
+    },
+    "facts": {
+      "log-filename": {
+        "tasks": [
+          "T1",
+          "T4"
+        ],
+        "runs": 2,
+        "pass": 2,
+        "pass_rate": 1.0
+      },
+      "budget-amount": {
+        "tasks": [
+          "T2",
+          "T5"
+        ],
+        "runs": 2,
+        "pass": 1,
+        "pass_rate": 0.5
+      },
+      "honest-failure": {
+        "tasks": [
+          "T3"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      },
+      "lab-total": {
+        "tasks": [
+          "T6",
+          "T15",
+          "T22",
+          "T24"
+        ],
+        "runs": 4,
+        "pass": 0,
+        "pass_rate": 0.0
+      },
+      "lab-diff": {
+        "tasks": [
+          "T7",
+          "T16",
+          "T21"
+        ],
+        "runs": 3,
+        "pass": 0,
+        "pass_rate": 0.0
+      },
+      "lab-max": {
+        "tasks": [
+          "T8"
+        ],
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0
+      },
+      "lab-prepay": {
+        "tasks": [
+          "T9",
+          "T23"
+        ],
+        "runs": 2,
+        "pass": 0,
+        "pass_rate": 0.0
+      },
+      "lab-approve": {
+        "tasks": [
+          "T10"
+        ],
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0
+      },
+      "lab-other": {
+        "tasks": [
+          "T11"
+        ],
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0
+      },
+      "lab-nav": {
+        "tasks": [
+          "T12"
+        ],
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0
+      },
+      "lab-digitfree": {
+        "tasks": [
+          "T13"
+        ],
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0
+      },
+      "lab-threshold": {
+        "tasks": [
+          "T14"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      },
+      "lab-refuse": {
+        "tasks": [
+          "T17"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      },
+      "lab-promo": {
+        "tasks": [
+          "T18"
+        ],
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0
+      },
+      "lab-staff": {
+        "tasks": [
+          "T19",
+          "T20"
+        ],
+        "runs": 2,
+        "pass": 2,
+        "pass_rate": 1.0
+      }
+    }
+  }
+}
