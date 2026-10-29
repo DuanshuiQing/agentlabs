@@ -12,7 +12,7 @@
 | 层 | 要重置什么 | 谁负责 |
 | --- | --- | --- |
 | 对话 | 空 messages，只放本次任务 | `agent.run()` 天然如此 |
-| 磁盘 | 所有任务产物（`PRODUCTS`） | 本文件的**全局前置清理** |
+| 磁盘 | 所有任务产物 + 被改写的 fixture | 本文件的**全局前置复位**（`reset_state`）|
 | 轨迹 | 上一次运行写下的 `run-*.jsonl` | `tools.py` 的 `RunTrace`（第 2a 步） |
 
 ## 为什么清理不按任务挑
@@ -79,7 +79,7 @@ sys.path.insert(0, str(HERE))
 # `import agent` 要靠它 —— `mini-agent/` 不在 sys.path 里的话，
 # `--plan` 和 `--replay` 都发现不了，因为它们不导入 agent，只有真跑才炸。
 sys.path.insert(0, str(MINI))
-from tasks import BY_ID, MINI_ROOT, PRODUCTS, TASKS, self_check  # noqa: E402
+from tasks import BY_ID, MINI_ROOT, PRODUCTS, RESTORE, TASKS, self_check  # noqa: E402
 
 # 工作区里**允许**出现的变更：新增的轨迹。别的一律算"隔离没做好"。
 _ONLY_ALLOWED = re.compile(r"^mini-agent/logs/run-\d{8}-\d{6}(?:-\d+)?\.jsonl$")
@@ -143,15 +143,34 @@ def code_dirty() -> list[str]:
     ]
 
 
-def clear_products() -> list[str]:
-    """全局前置清理。返回真的删掉了哪些。"""
+def reset_state() -> tuple[list[str], list[str]]:
+    """全局前置复位：**删产物 + 还原被改写的 fixture**。每条运行前无条件执行。
+
+    两种机制，别混（见 `tasks.py` 的 PRODUCTS / RESTORE）：
+
+        删     任务**新建**的文件（`logs/answers.txt`）
+        还原   任务**改写**的 fixture（`data/lab/draft.txt`）
+
+    为什么还原也必须全局做：T13 问"哪些文件不含阿拉伯数字"，而 T15/T16 会往
+    `draft.txt` 里写金额。不还原的话，T13 的正确答案会在 T15 跑过之后变成错的 ——
+    表现为"这条任务偶尔失败"，是最难归因的那一类。
+
+    返回 (删掉的, 还原的)，只为让报告里能看见。
+    """
     removed: list[str] = []
     for rel in PRODUCTS:
         target = MINI_ROOT / rel
         if target.exists():
             target.unlink()
             removed.append(rel)
-    return removed
+
+    restored: list[str] = []
+    for rel, content in RESTORE.items():
+        # newline="\n"：`write_text` 默认把 \n 翻成 \r\n（README 第 13 条），
+        # 而 draft.txt 在 git 里是 LF —— 落成 CRLF 会让工作区变脏，隔离闸会拒跑。
+        (MINI_ROOT / rel).write_text(content, encoding="utf-8", newline="\n")
+        restored.append(rel)
+    return removed, restored
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +253,7 @@ def show_report(summary: dict) -> None:
 
 def one_run(task, index: int, max_steps: int, verbose: bool) -> dict:
     """一条任务的一次运行：清产物 → 复查 → 跑 → 断言 → 记一行。"""
-    removed = clear_products()
+    removed, restored = reset_state()
 
     leftovers = isolation_problems()
     if leftovers:
@@ -242,7 +261,8 @@ def one_run(task, index: int, max_steps: int, verbose: bool) -> dict:
         raise RuntimeError(
             "前置清理之后工作区仍有非轨迹变更，隔离没做好：\n  "
             + "\n  ".join(leftovers)
-            + f"\n（已清：{removed}；PRODUCTS={list(PRODUCTS)} —— 漏了哪一项？）"
+            + f"\n（已删：{removed}；已还原：{restored}"
+              f"；PRODUCTS={list(PRODUCTS)}；RESTORE={list(RESTORE)} —— 漏了哪一项？）"
         )
 
     import agent  # 延迟导入：--plan 不该把 .env / openai 拉进来
@@ -441,7 +461,7 @@ def plan_only(tasks, n: int, max_steps: int, replay_mode: bool) -> int:
         mark = "（轨迹，允许）" if _ONLY_ALLOWED.match(path) else "← 需要先处理"
         print(f"  {path}  {mark}")
 
-    print(f"\n全局前置清理清单 PRODUCTS = {list(PRODUCTS)}")
+    print(f"\n全局前置清理：删 {list(PRODUCTS)}；还原 {list(RESTORE)} 到原样")
     print(f"最大步数  ：{max_steps}")
     print(f"模式      ：{'--replay（零成本，重放历史答案）' if replay_mode else '真实运行（花钱）'}")
 
@@ -549,6 +569,7 @@ def main() -> int:
         "n": args.n,
         "tasks": [t.id for t in tasks],
         "products_cleared": list(PRODUCTS),
+        "fixtures_restored": list(RESTORE),
         "budget": {t.id: t.budget_tokens for t in tasks},
         "runs": records,
         "summary": {**summary, "fail_reason": sorted(summary["fail_reason"])},

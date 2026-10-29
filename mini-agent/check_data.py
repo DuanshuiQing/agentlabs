@@ -42,6 +42,32 @@ SELF_REVEALING = ("干扰项", "干扰", "测试文件", "示例文件", "样例
 # PLAN §4.4：handbook.txt 里必须写明日志文件名约定（T1 的答案）
 T1_ANSWER_HINT = "run-<时间戳>.jsonl"
 
+# ---------------------------------------------------------------------------
+# 阶段 1 第 4 步：data/lab/ 那一组（T6–T24 用）
+#
+# 设计意图见 evals/tasks.py 里 T6 那一段注释。这里只说断言口径。
+# ---------------------------------------------------------------------------
+LAB = DATA / "lab"
+LAB_EXPECTED = (
+    "plan.txt",  # 计划说明：只讲构成，不含金额
+    "quote-a.txt",  # 供应商 A 报价
+    "quote-b.txt",  # 供应商 B 报价
+    "memo.txt",  # 筹备会备忘：决定采用 B —— **结论在这里，数字在别处**
+    "terms.txt",  # 付款条款：预付比例、审批线
+    "staff.txt",  # 分工名单
+    "draft.txt",  # 待填写的草稿（T15/T16 往里写，T17 必须不写）
+)
+# 这些文件**不许**有阿拉伯数字（T13 的答案就是这一句）
+LAB_NO_DIGITS = ("plan.txt", "memo.txt", "staff.txt", "draft.txt")
+# 这些文件**必须**有阿拉伯数字
+LAB_WITH_DIGITS = ("quote-a.txt", "quote-b.txt", "terms.txt")
+# T17 的前提：这个文件必须读不到
+LAB_MUST_NOT_EXIST = ("quote-c.txt",)
+
+
+def read_lab(name: str) -> str:
+    return (LAB / name).read_text(encoding="utf-8")
+
 
 def read(name: str) -> str:
     return (DATA / name).read_text(encoding="utf-8")
@@ -122,6 +148,72 @@ def main() -> int:
     if not ok:
         problems.append(f"{T1_SOURCE} 里找不到 T1 的答案文本")
 
+    # ===================================================================
+    # 7–10：阶段 1 第 4 步新增的 data/lab/ 那一组（T6–T24 用）
+    #
+    # 为什么每组 fixture 都要有自己的断言：这一组的设计意图全是
+    # "**没做到也不会报错**"的类型 —— 哪个文件漏了一个金额、两个金额变成子串、
+    # 某个"本该没有数字"的文件被人顺手改了一个数字，任务都还会跑，
+    # 只是测的已经不是原来那件事了。
+    # ===================================================================
+    print("\n[7] data/lab/ 文件清单（T6–T24 的 fixture）：")
+    lab_present = sorted(p.name for p in LAB.iterdir() if p.is_file())
+    for name in LAB_EXPECTED:
+        if name not in lab_present:
+            problems.append(f"data/lab/ 缺少 {name}")
+    for name in lab_present:
+        if name not in LAB_EXPECTED:
+            problems.append(f"data/lab/ 出现了计划外的文件：{name}（模型会把它当候选）")
+    print(f"      {lab_present}")
+    for name in LAB_MUST_NOT_EXIST:
+        exists = (LAB / name).exists()
+        print(f"      {name} 存在吗：{exists}   ← 必须 False")
+        if exists:
+            problems.append(f"data/lab/{name} 竟然存在 —— 依赖它不存在的任务就废了")
+
+    print("[8] 数字分布（哪些文件该有、哪些该没有）：")
+    lab_numbers: dict[str, list[str]] = {}
+    for name in LAB_EXPECTED:
+        if name not in lab_present:
+            continue
+        found = digit_runs(read_lab(name))
+        lab_numbers[name] = found
+        if name in LAB_NO_DIGITS:
+            print(f"      {name:<14} {found or '（无）'}   ← 必须（无）")
+            if found:
+                problems.append(f"data/lab/{name} 含阿拉伯数字 {found} —— T13 的答案就变了")
+        elif name in LAB_WITH_DIGITS:
+            print(f"      {name:<14} {found}   ← 必须有数字")
+            if not found:
+                problems.append(f"data/lab/{name} 里一个数字都没有 —— T13 的答案就变了")
+
+    # 断言判据是 `token in answer`，所以**一个金额是另一个的子串**就会误命中：
+    # 判 `"500"` 时，答案是 `"1540"` 也会通过。这里自动把 lab 里的数字全抽出来查，
+    # 不硬编码清单 —— 改了 fixture 也不会漏检。
+    print("[9] data/lab/ 里的数字两两不许互为子串（`in answer` 的正确性前提）：")
+    flat = sorted({n for nums in lab_numbers.values() for n in nums})
+    collisions = [(a, b) for a in flat for b in flat if a != b and a in b]
+    print(f"      全部数字：{flat}")
+    if collisions:
+        print(f"      见下方问题列表（{len(collisions)} 组冲突）")
+        for a, b in collisions:
+            problems.append(f'data/lab/ 里 "{a}" 是 "{b}" 的子串 —— 子串断言会误命中')
+    else:
+        print("      无冲突")
+
+    # 新 fixture 同样不许自我暴露（PLAN §4.4 硬要求 1）
+    print("[10] data/lab/ 自我暴露检查：")
+    hit = False
+    for name in LAB_EXPECTED:
+        if name not in lab_present:
+            continue
+        text = read_lab(name)
+        for word in SELF_REVEALING:
+            if word in text:
+                hit = True
+                problems.append(f"data/lab/{name} 里出现了自我暴露字样「{word}」")
+    print("      未发现自我暴露字样" if not hit else "      见下方问题列表")
+
     # ---- 结论 ----------------------------------------------------------
     print()
     if problems:
@@ -129,7 +221,8 @@ def main() -> int:
         for item in problems:
             print(f"  ✗ {item}")
         return 1
-    print("全部通过：4 个数据文件符合 PLAN §4.4 规格。")
+    print(f"全部通过：data/ 的 {len(EXPECTED)} 个文件符合 PLAN §4.4 规格，"
+          f"data/lab/ 的 {len(LAB_EXPECTED)} 个文件符合第 4 步的规格。")
     return 0
 
 

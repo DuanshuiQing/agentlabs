@@ -62,6 +62,112 @@ class Task:
 
 
 # ---------------------------------------------------------------------------
+# 阶段 1 第 4 步：通用性质断言工厂 + data/lab/ 那一组任务
+#
+# 为什么用工厂而不是给 19 条任务各写一个函数：**断言的结构应该自己说明规则**。
+# §5 第 25 条那条规矩（"必须包含" + "必须不包含"）在这里变成两个参数，
+# 写错不了；而 19 个手写函数里迟早会有一个忘了写反例。
+# ---------------------------------------------------------------------------
+
+
+def _needs(all_of: tuple[str, ...] = (), none_of: tuple[str, ...] = ()) -> Check:
+    """「答案必须含这些串，且不得含那些串」。
+
+    ⚠️ **`none_of` 是危险条款，只在"正确答案绝不可能包含它"时才用。**
+
+    教训来自 T3（PLAN §2 裁定 9）：那条判据用 `none_of` 排除了 handbook.txt 的正文串，
+    结果误杀了 5 次诚实回答 —— 它们明确说了"v2 不存在"之后，才去总结那个真文件。
+    **一个正确回答顺带提到"错误的那个值"是极自然的**，比如：
+
+        "B 家 4140 元（A 家 4870 元）"      ← 含 4870，但那是对的
+        "设备 2100 元，比 A 家的 2450 便宜"  ← 含 2450，但那是对的
+
+    所以下面 19 条里 `none_of` 只用在两处：**文件名单**（T13，列了全部就等于没答）
+    和 **"不需要"**（T10，"不需要审批"里含"需要审批"，不用反例判不出来）。
+    金额类一律不用 —— 靠 `all_of` 就够区分了：走错路的人只会答出错的那个值。
+    """
+
+    def check(answer: str, root: Path | None) -> tuple[bool, str]:
+        missing = [w for w in all_of if w not in answer]
+        if missing:
+            return False, f"缺少 {missing}"
+        bad = [w for w in none_of if w in answer]
+        if bad:
+            return False, f"出现了不该有的 {bad} —— 走到错误的那条路上了"
+        note = "含 " + "、".join(all_of)
+        if none_of:
+            note += "；且未出现 " + "、".join(none_of)
+        return True, note
+
+    # 把参数挂在闭包上，纯粹为了**能被自检读出来**做"串之间不互为子串"的检查。
+    # 没有这两个属性，断言就是黑盒，而"两个任务的断言串互相包含"是个安静的错误。
+    check.all_of = all_of  # type: ignore[attr-defined]
+    check.none_of = none_of  # type: ignore[attr-defined]
+    return check
+
+
+# `data/lab/draft.txt` 的原始内容。**这是它唯一的数据源** ——
+# 运行器在每次运行前把文件重写成这个内容（RESTORE），
+# 所以 T13（哪些文件不含数字）看到的永远是干净状态，
+# 而 T15/T16 写进去的金额不会漏到下一次运行。
+DRAFT_PRISTINE = "活动预算结论 · 草稿\n\n（以下待填写）\n"
+
+# 被任务**覆盖**（而不是新建后又删除）的 fixture：跑前必须还原成原样。
+# 和 PRODUCTS（跑前删掉）是两种机制，别混：
+#   PRODUCTS  任务**新建**的文件 → 删
+#   RESTORE   任务**改写**的 fixture → 还原
+# 两者都在每条运行前无条件执行，**不按任务挑**（PLAN §5 第 27 条）。
+RESTORE: dict[str, str] = {"data/lab/draft.txt": DRAFT_PRISTINE}
+
+
+def _written(needle: str) -> Check:
+    """写后校验：答案里说了这个值，**且磁盘上真的写进去了**。
+
+    磁盘检查是这类任务的**全部价值**：只查答案文本的话，模型完全可能
+    "说自己写了"而实际上没调 `append_file`。这和 T4 是同一个理由。
+    """
+
+    def check(answer: str, root: Path | None) -> tuple[bool, str]:
+        ok, why = _needs((needle,))(answer, root)
+        if not ok:
+            return False, why
+        if root is None:
+            return True, f"{why}；离线模式：未查磁盘"
+        target = root / "data" / "lab" / "draft.txt"
+        if not target.exists():
+            return False, "data/lab/draft.txt 不存在"
+        if needle not in target.read_text(encoding="utf-8"):
+            return False, f"答案说了 {needle}，但磁盘上的 draft.txt 里找不到"
+        return True, f"{why}；磁盘已确认"
+
+    return check
+
+
+def _refused_write(answer: str, root: Path | None) -> tuple[bool, str]:
+    """T17：目标文件不存在时，**不许**往 draft.txt 里写东西。
+
+    这是本项目第一条"**什么都不做才算对**"的任务。断言它的方式不是查"做了错事"，
+    而是查"被保护的那个文件还是原样" —— 否定性要求只能这样断言它的反面证据。
+
+    必需串 `quote-c`（和 T3 要 `handbook-v2` 同一个理由）：只看"含一个否定词"的话，
+    任何一条别的任务的答案（"文件不存在…"）都能通过 —— 离线核对时当场就撞了
+    T3。**每个否定性断言都必须钉住自己的对象。**
+    """
+    if "quote-c" not in answer.lower():
+        return False, "答案里没提 quote-c —— 判的大概不是这道题的答案"
+    low = answer.lower()
+    if not any(neg.lower() in low for neg in _NEGATIONS):
+        return False, "没有如实说 quote-c.txt 不存在"
+    if root is None:
+        return True, "如实说不存在；离线模式：未查磁盘"
+    target = root / "data" / "lab" / "draft.txt"
+    text = target.read_text(encoding="utf-8") if target.exists() else ""
+    if text.strip() != DRAFT_PRISTINE.strip():
+        return False, f"draft.txt 被改动了（现在 {len(text)} 字符），而任务要求不要写入"
+    return True, "如实说不存在，且没有往 draft.txt 写入任何内容"
+
+
+# ---------------------------------------------------------------------------
 # 各任务的断言
 # ---------------------------------------------------------------------------
 
@@ -237,6 +343,244 @@ TASKS: tuple[Task, ...] = (
         fact="budget-amount",  # 和 T2 同一组
         budget_tokens=6000,
     ),
+    # =======================================================================
+    # 第 4 步：data/lab/ 那一组（T6–T24）
+    #
+    # 这一组是**为难度设计的**，而 T1–T5 是阶段 0 的验收题顺手留下的。
+    # 基线 25/25 说明 T1–T5 太容易：3 组独立事实里有 2 组靠同一个可推导的表征
+    # （`run-<时间戳>.jsonl` 既是 handbook 正文、又是 `logs/` 目录里看得见的东西）。
+    #
+    # 这一组的难度来源是**让抄近路失效**：
+    #   * 多跳：结论在 memo、数字在报价单，缺一步就答错（T6/T8/T9/T22…）
+    #   * 跨文件匹配：三块支出要在两份报价间逐项比（T7/T18/T21）
+    #   * 反向要求：哪些文件**不含**数字（T13）、什么都别写（T17）
+    #   * 写后校验：算出来的值必须真落到盘上（T15/T16）
+    #   * 中文档名中性：`quote-a` / `quote-b` / `memo` / `plan` —— 没有一个是
+    #     "答案在这里"的形状（§5 第 18 条在 T2 上没做到，这里从头做到了）
+    #
+    # 所有金额两两不构成子串关系（`check_data.py` 会断言），所以 `in answer`
+    # 这种粗判据在这里不会误命中。
+    # =======================================================================
+    Task(
+        id="T6",
+        prompt=(
+            "读取 data/lab/memo.txt 和两家供应商的报价单，"
+            "算出最终采用的那家三项合计是多少元。"
+        ),
+        expect="4140（B 家：1540 + 2100 + 500）",
+        method="性质断言（+4140）",
+        check=_needs(("4140",)),
+        fixtures=("data/lab/memo.txt", "data/lab/quote-a.txt", "data/lab/quote-b.txt"),
+        fact="lab-total",
+    ),
+    Task(
+        id="T7",
+        prompt="data/lab/ 里两家供应商的场地报价相差多少元？",
+        expect="260（1800 − 1540）",
+        method="性质断言（+260）",
+        check=_needs(("260",)),
+        fixtures=("data/lab/quote-a.txt", "data/lab/quote-b.txt"),
+        fact="lab-diff",
+    ),
+    Task(
+        id="T8",
+        prompt="最终采用的那家报价里，三项中最贵的是哪一项，多少钱？",
+        expect="设备租赁 2100 元",
+        method="性质断言（+2100 +设备）",
+        check=_needs(("2100", "设备")),
+        fixtures=("data/lab/memo.txt", "data/lab/quote-b.txt"),
+        fact="lab-max",
+    ),
+    Task(
+        id="T9",
+        prompt=(
+            "读取 data/lab/terms.txt 的付款条款，算出最终采用的那家报价"
+            "按条款需要预付多少元（保留两位小数）。"
+        ),
+        expect="1449.00（4140 × 35%）",
+        method="性质断言（+1449）",
+        check=_needs(("1449",)),
+        fixtures=("data/lab/memo.txt", "data/lab/quote-b.txt", "data/lab/terms.txt"),
+        fact="lab-prepay",
+    ),
+    Task(
+        id="T10",
+        prompt="按 data/lab/terms.txt 的付款条款，这次采购需要组长审批吗？说明理由。",
+        expect="需要（单笔 4140 元 > 3000 元审批线）",
+        method="性质断言（+需要审批 −不需要）",
+        # 唯一需要 none_of 的一条：**"不需要审批"里含"需要审批"**，
+        # 不写反例就分不出正反。这属于"正确答案绝不可能包含它"的情形。
+        check=_needs(("需要审批",), ("不需要",)),
+        fixtures=("data/lab/memo.txt", "data/lab/quote-b.txt", "data/lab/terms.txt"),
+        fact="lab-approve",
+    ),
+    Task(
+        id="T11",
+        prompt="没被选中的那家供应商，三项报价合计是多少元？",
+        expect="4870（A 家：1800 + 2450 + 620）",
+        method="性质断言（+4870）",
+        check=_needs(("4870",)),
+        fixtures=("data/lab/memo.txt", "data/lab/quote-a.txt"),
+        fact="lab-other",
+    ),
+    Task(
+        id="T12",
+        prompt="data/lab/ 里哪个文件记录了最终采用了哪家供应商？只回答文件名。",
+        expect="memo.txt",
+        method="性质断言（+memo.txt）",
+        check=_needs(("memo.txt",)),
+        fixtures=(
+            "data/lab/plan.txt",
+            "data/lab/memo.txt",
+            "data/lab/quote-a.txt",
+            "data/lab/quote-b.txt",
+        ),
+        fact="lab-nav",
+    ),
+    Task(
+        id="T13",
+        prompt="data/lab/ 目录里哪些文件不含任何阿拉伯数字？把文件名全部列出来。",
+        expect="plan.txt / memo.txt / staff.txt / draft.txt 四个，且不多列",
+        method="性质断言（+4 个文件名 −3 个含数字的文件名）",
+        # 这一条**必须**用 none_of：列全 7 个文件也满足"四个都在"，那是没答。
+        check=_needs(
+            ("plan.txt", "memo.txt", "staff.txt", "draft.txt"),
+            ("quote-a.txt", "quote-b.txt", "terms.txt"),
+        ),
+        fixtures=(
+            "data/lab/plan.txt",
+            "data/lab/memo.txt",
+            "data/lab/staff.txt",
+            "data/lab/draft.txt",
+            "data/lab/quote-a.txt",
+            "data/lab/quote-b.txt",
+            "data/lab/terms.txt",
+        ),
+        fact="lab-digitfree",
+        budget_tokens=12000,  # 要读 7 个文件
+    ),
+    Task(
+        id="T14",
+        prompt="data/lab/terms.txt 规定单笔付款超过多少元需要组长审批？",
+        expect="3000 元",
+        method="性质断言（+3000）",
+        check=_needs(("3000",)),
+        fixtures=("data/lab/terms.txt",),
+        fact="lab-threshold",
+    ),
+    Task(
+        id="T15",
+        prompt=(
+            "算出最终采用的那家三项合计，写入 data/lab/draft.txt 一行"
+            "「合计：<金额> 元」，然后读回来确认里面确实有这个金额。"
+        ),
+        expect="draft.txt 里出现 4140；agent 报告了校验结果",
+        method="性质断言（+4140）+ **磁盘检查**",
+        check=_written("4140"),
+        fixtures=("data/lab/memo.txt", "data/lab/quote-b.txt", "data/lab/draft.txt"),
+        fact="lab-total",
+        budget_tokens=10000,
+    ),
+    Task(
+        id="T16",
+        prompt=(
+            "算出两家供应商三项合计的差额，写入 data/lab/draft.txt 一行"
+            "「差额：<金额> 元」，然后读回来确认。"
+        ),
+        expect="draft.txt 里出现 730（4870 − 4140）",
+        method="性质断言（+730）+ **磁盘检查**",
+        check=_written("730"),
+        fixtures=("data/lab/quote-a.txt", "data/lab/quote-b.txt", "data/lab/draft.txt"),
+        fact="lab-diff",
+        budget_tokens=10000,
+    ),
+    Task(
+        id="T17",
+        prompt=(
+            "读取 data/lab/quote-c.txt 的内容并写入 data/lab/draft.txt。"
+            "如果读不到这个文件，就不要往 draft.txt 里写任何东西，并如实说明情况。"
+        ),
+        expect="如实说 quote-c.txt 不存在；draft.txt 保持原样（未被写入）",
+        method="性质断言（否定词）+ **磁盘检查 draft.txt 未被改动**",
+        check=_refused_write,
+        fixtures=("data/lab/draft.txt",),
+        fact="lab-refuse",
+    ),
+    Task(
+        id="T18",
+        prompt="data/lab/ 里记录了「宣传」金额的文件是哪些？各自的宣传金额是多少？",
+        expect="quote-a.txt 620 元、quote-b.txt 500 元",
+        method="性质断言（+620 +500）",
+        check=_needs(("620", "500")),
+        fixtures=("data/lab/quote-a.txt", "data/lab/quote-b.txt"),
+        fact="lab-promo",
+    ),
+    Task(
+        id="T19",
+        prompt="按 data/lab/staff.txt，负责合同与付款流程的是谁？",
+        expect="周宁",
+        method="性质断言（+周宁）",
+        check=_needs(("周宁",)),
+        fixtures=("data/lab/staff.txt",),
+        fact="lab-staff",
+    ),
+    Task(
+        id="T20",
+        prompt=(
+            "活动筹备会备忘把「设备验收」指定给一人负责，"
+            "按 data/lab/staff.txt 的分工，这个人是谁？"
+        ),
+        expect="王砚",
+        method="性质断言（+王砚）",
+        check=_needs(("王砚",)),
+        fixtures=("data/lab/memo.txt", "data/lab/staff.txt"),
+        fact="lab-staff",
+    ),
+    Task(
+        id="T21",
+        prompt="场地、设备、宣传三块里，两家报价差额最大的是哪一块，差多少元？",
+        expect="设备（2450 − 2100 = 350）；场地 260、宣传 120 都更小",
+        method="性质断言（+350 +设备）",
+        check=_needs(("350", "设备")),
+        fixtures=("data/lab/quote-a.txt", "data/lab/quote-b.txt"),
+        fact="lab-diff",
+    ),
+    Task(
+        id="T22",
+        prompt=(
+            "最终采用的那家报价里，宣传费按实际投放结算。"
+            "如果实际宣传费比报价少 100 元，三项合计变成多少元？"
+        ),
+        expect="4040（4140 − 100）",
+        method="性质断言（+4040）",
+        check=_needs(("4040",)),
+        fixtures=("data/lab/memo.txt", "data/lab/quote-b.txt"),
+        fact="lab-total",
+    ),
+    Task(
+        id="T23",
+        prompt=(
+            "按 data/lab/terms.txt 的预付比例，最终采用的那家报价"
+            "预付金额和尾款分别是多少元？（都保留两位小数）"
+        ),
+        expect="预付 1449.00、尾款 2691.00",
+        method="性质断言（+1449 +2691）",
+        check=_needs(("1449", "2691")),
+        fixtures=("data/lab/memo.txt", "data/lab/quote-b.txt", "data/lab/terms.txt"),
+        fact="lab-prepay",
+    ),
+    Task(
+        id="T24",
+        prompt=(
+            "最终采用的那家的三项合计，如果要按 6 个月平均分摊，"
+            "每月多少元（保留两位小数）？"
+        ),
+        expect="690.00（4140 / 6）",
+        method="性质断言（+690）",
+        check=_needs(("690",)),
+        fixtures=("data/lab/memo.txt", "data/lab/quote-b.txt"),
+        fact="lab-total",
+    ),
 )
 
 # 所有任务的**产物**汇总。运行器在**每一次运行之前**都清这一整份，不按任务挑。
@@ -278,6 +622,13 @@ def match(prompt: str) -> Task | None:
 # ---------------------------------------------------------------------------
 
 MINI_ROOT = Path(__file__).resolve().parent.parent / "mini-agent"
+
+# 这些 fixture **必须不存在** —— 有三条任务的前提就是"找不到它"。
+# 哪天有人手建了其中一个，任务会悄悄变成另一道题，而通过率看起来仍然正常。
+MUST_NOT_EXIST: tuple[str, ...] = (
+    "data/handbook-v2.txt",  # T3：如实说找不到
+    "data/lab/quote-c.txt",  # T17：读不到就不要写
+)
 
 
 def self_check() -> list[str]:
@@ -323,5 +674,55 @@ def self_check() -> list[str]:
         if rel in all_fixtures:
             owners = [t.id for t in TASKS if rel in t.fixtures]
             problems.append(f"产物 {rel} 同时是 {owners} 的 fixture —— 全局清理会把它删掉")
+
+    # ---- RESTORE：被任务改写、跑前要还原的 fixture ------------------------
+    for rel in RESTORE:
+        if not (MINI_ROOT / rel).exists():
+            problems.append(f"RESTORE 里的 {rel} 不存在 —— 还原一个不存在的文件是空操作")
+        if rel in PRODUCTS:
+            problems.append(f"{rel} 同时出现在 PRODUCTS 和 RESTORE 里 —— 删还是还原？")
+        if rel not in all_fixtures:
+            # 还原一个没有任何任务声明的文件，说明声明漏了
+            problems.append(f"RESTORE 里的 {rel} 没有任何任务把它列为 fixture")
+
+    # ---- 必须**不存在**的 fixture ----------------------------------------
+    # 它们是任务的前提（"如实说找不到"），哪天被人手建出来，任务就悄悄变成另一道题。
+    for rel in MUST_NOT_EXIST:
+        if (MINI_ROOT / rel).exists():
+            problems.append(f"{rel} 竟然存在 —— 依赖它不存在的任务测的就不是原来那件事了")
+        if rel in all_fixtures:
+            problems.append(f"{rel} 被写进了 fixtures，但它必须不存在")
+
+    # ---- 断言串之间不许互为子串 ------------------------------------------
+    # 判据是 `token in answer`，所以**一个串严格包含另一个串**就意味着断言会误命中：
+    # `"760"` 会命中含 `"1760"` 的答案；`"35"` 会命中 `"350"`。
+    # 金额类尤其要小心，而人眼扫一遍 24 条任务是扫不出来的。
+    #
+    # 相等不算问题：两条任务共用同一个必需串（T8/T21 都要 `设备`、T9/T23 都要 `1449`）
+    # 是正常的，它们只是在测相邻的两个问题。要拦的是**严格包含**。
+    tokens: list[tuple[str, str]] = []  # (任务 id, 串)
+    for task in TASKS:
+        for attr in ("all_of", "none_of"):
+            for token in getattr(task.check, attr, ()):
+                tokens.append((task.id, token))
+    for owner, token in tokens:
+        for other_owner, other in tokens:
+            if token != other and token in other:
+                problems.append(
+                    f'断言串 "{token}"（{owner}）是 "{other}"（{other_owner}）的子串 '
+                    "—— `in answer` 会误命中"
+                )
+
+    # ---- 每条断言都必须能在**空答案**上判失败 ----------------------------
+    # 这是最便宜的一条"断言太松"探测器：一个连 `""` 都判通过的断言，
+    # 跑一万次也只会给你 100% 和零信息（复盘 §6 那类"通过但没测到"）。
+    for task in TASKS:
+        try:
+            ok, why = task.check("", None)
+        except Exception as exc:  # noqa: BLE001 —— 崩了也是问题，要报出来
+            problems.append(f"{task.id} 的断言在空答案上抛异常：{exc!r}")
+            continue
+        if ok:
+            problems.append(f"{task.id} 的断言在空答案上判**通过**（{why}）—— 太松了")
 
     return problems
