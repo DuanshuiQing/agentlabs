@@ -36,7 +36,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(HERE))
-from tasks import TASKS, match, self_check  # noqa: E402
+from tasks import _conclusion, TASKS, match, self_check  # noqa: E402
 
 
 def load_runs() -> list[dict]:
@@ -126,6 +126,23 @@ def main() -> int:
         print("    任务集扩到 20+ 条时，同一类事实要避免被两条任务重复度量。")
     else:
         print("  （无重叠）")
+
+    # ---------------- 空矩阵守卫 ----------------
+    # **"零重叠"和"矩阵不可信"在输出上长得一模一样。**
+    # 实测踩过：给 24 条题面统一加了「结论行」要求之后，所有历史轨迹都没有结论行，
+    # 于是断言几乎全部判失败 —— 矩阵一片 `·`、0 处重叠。那不是"判据变紧了"，
+    # 是"判据和这批数据的格式不匹配"。零重叠只在**数据确实带着新格式**时才有意义。
+    #
+    # 判据不看"通过数"而看"**有多少条答案能被解析出结论行**"，因为那才是病因：
+    # 通过数低可能只是因为题目变难了，结论行缺失才是格式不匹配的确定信号。
+    matched = [r for r in runs if match(r["prompt"]) is not None]
+    with_concl = sum(1 for r in matched if _conclusion(r["answer"]) is not None)
+    if matched and with_concl * 2 < len(matched):
+        print()
+        print(f"⚠️ 矩阵不可信：{len(matched)} 份轨迹里只有 **{with_concl}** 份能解析出「结论：…」行。")
+        print("   这说明判据和数据的格式不匹配（比如题面新加了输出契约，而历史答案没有），")
+        print("   不是判据变紧了。此时上面那句「无重叠」没有任何意义 —— 大部分格子是被格式判死的。")
+        print("   → 要拿重叠情况当证据，必须用**格式变更之后**跑出来的轨迹。")
 
     # ---------------- 结论 ----------------
     print()

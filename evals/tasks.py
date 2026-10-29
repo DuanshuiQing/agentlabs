@@ -29,7 +29,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
@@ -74,8 +75,53 @@ class Task:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# 结论行：阶段 1 第 4 步收尾时加的输出契约
+#
+# ## 为什么非加不可
+#
+# 24 条任务跑完一次之后，特异性矩阵的重叠从 5 处涨到 **61 处**。
+# 根因：**数值型子串断言天生跨任务可通** —— 一条多跳答案（比如 T9）会顺带写出
+# 1540 / 2100 / 500 / 3000 / 1449 / 4140 / 35，于是几乎通过所有数值断言。
+#
+# 真正危险的后果：**一个把两家报价都罗列、却不下结论的答案，会通过 T6**（它含 4140）。
+# 也就是说 `all_of=("4140",)` 验证的是「这个数**出现过**」，不是「这个数**就是答案**」。
+# 这和复盘 §6 里 T4 那条"『内容正确』判据不可执行"是同一类问题。
+#
+# ## 怎么修的
+#
+# 题面统一加一句：「最后一行写成 `结论：<答案>`」，断言**只看那一行**。
+# 被判的表面从"整段长答案"缩到"一行短结论"，重叠自然塌掉；
+# 顺带这也是一条真实能力 —— **把结论放在指定位置**，是机器可读输出的基本契约。
+#
+# 代价：解析失败时要把"格式没按"和"答错"分开报，否则没法诊断。
+# ---------------------------------------------------------------------------
+
+_FORMAT_SUFFIX = (
+    "\n\n输出要求：**最后一行**写成 `结论：<答案>`，只在这行给最终答案，不要在别处另给一个。"
+)
+
+_CONCLUSION = re.compile(r"结\s*论\s*[：:]\s*(.+?)\s*$")
+
+
+def _conclusion(answer: str) -> str | None:
+    """取**最后一条**「结论：…」后面的内容。没有就返回 None。
+
+    允许的写法（都是实测里真出现过的形状）：
+        `结论：4140 元`
+        `**结论：4140 元**`
+        `结论: 4140`
+    判据只看这一行，所以**格式没按**和**答错**必须能分开报 —— 见 `_needs` 的返回。
+    """
+    for line in reversed(answer.splitlines()):
+        found = _CONCLUSION.search(line)
+        if found:
+            return found.group(1)
+    return None
+
+
 def _needs(all_of: tuple[str, ...] = (), none_of: tuple[str, ...] = ()) -> Check:
-    """「答案必须含这些串，且不得含那些串」。
+    """「**结论行**里必须含这些串，且不得含那些串」。
 
     ⚠️ **`none_of` 是危险条款，只在"正确答案绝不可能包含它"时才用。**
 
@@ -84,21 +130,23 @@ def _needs(all_of: tuple[str, ...] = (), none_of: tuple[str, ...] = ()) -> Check
     **一个正确回答顺带提到"错误的那个值"是极自然的**，比如：
 
         "B 家 4140 元（A 家 4870 元）"      ← 含 4870，但那是对的
-        "设备 2100 元，比 A 家的 2450 便宜"  ← 含 2450，但那是对的
 
-    所以下面 19 条里 `none_of` 只用在两处：**文件名单**（T13，列了全部就等于没答）
-    和 **"不需要"**（T10，"不需要审批"里含"需要审批"，不用反例判不出来）。
-    金额类一律不用 —— 靠 `all_of` 就够区分了：走错路的人只会答出错的那个值。
+    加了结论行之后风险小了很多（结论行通常只放最终值），但仍然只在
+    **文件名单**（T13）和 **"不需要"**（T10）两处用。
     """
 
     def check(answer: str, root: Path | None) -> tuple[bool, str]:
-        missing = [w for w in all_of if w not in answer]
+        concl = _conclusion(answer)
+        if concl is None:
+            # 单独报这一种，别和"答错"混在一起 —— 两者的修法完全不同
+            return False, "没有 `结论：…` 行 —— 输出格式没按要求，答案本身无法判"
+        missing = [w for w in all_of if w not in concl]
         if missing:
-            return False, f"缺少 {missing}"
-        bad = [w for w in none_of if w in answer]
+            return False, f"结论行里缺少 {missing}（结论行={concl[:40]!r}）"
+        bad = [w for w in none_of if w in concl]
         if bad:
-            return False, f"出现了不该有的 {bad} —— 走到错误的那条路上了"
-        note = "含 " + "、".join(all_of)
+            return False, f"结论行里出现了不该有的 {bad}"
+        note = "结论行含 " + "、".join(all_of)
         if none_of:
             note += "；且未出现 " + "、".join(none_of)
         return True, note
@@ -157,11 +205,14 @@ def _refused_write(answer: str, root: Path | None) -> tuple[bool, str]:
     任何一条别的任务的答案（"文件不存在…"）都能通过 —— 离线核对时当场就撞了
     T3。**每个否定性断言都必须钉住自己的对象。**
     """
-    if "quote-c" not in answer.lower():
-        return False, "答案里没提 quote-c —— 判的大概不是这道题的答案"
-    low = answer.lower()
+    concl = _conclusion(answer)
+    if concl is None:
+        return False, "没有 `结论：…` 行 —— 输出格式没按要求"
+    low = concl.lower()
+    if "quote-c" not in low:
+        return False, f"结论行里没提 quote-c（结论行={concl[:40]!r}）—— 判的大概不是这道题"
     if not any(neg.lower() in low for neg in _NEGATIONS):
-        return False, "没有如实说 quote-c.txt 不存在"
+        return False, f"结论行里没有如实说 quote-c.txt 不存在（{concl[:40]!r}）"
     if root is None:
         return True, "如实说不存在；离线模式：未查磁盘"
     target = root / "data" / "lab" / "draft.txt"
@@ -177,9 +228,12 @@ def _refused_write(answer: str, root: Path | None) -> tuple[bool, str]:
 
 
 def _t1(answer: str, root: Path | None) -> tuple[bool, str]:
-    """T1：答出日志文件名。含 `run-` 和 `.jsonl` 两个特征串。"""
-    hit = "run-" in answer and ".jsonl" in answer
-    return hit, "含 'run-' 与 '.jsonl'" if hit else "答案里找不到完整的文件名特征"
+    """T1：答出日志文件名。结论行含 `run-` 和 `.jsonl` 两个特征串。"""
+    concl = _conclusion(answer)
+    if concl is None:
+        return False, "没有 `结论：…` 行 —— 输出格式没按要求"
+    hit = "run-" in concl and ".jsonl" in concl
+    return hit, "结论行含 'run-' 与 '.jsonl'" if hit else "结论行里找不到完整的文件名特征"
 
 
 # T3 的反例特征：handbook.txt 的**正文**串。
@@ -195,15 +249,20 @@ _HANDBOOK_MARKERS = ("依赖与风格", "运行与日志", "LangChain")
 # `3800` / `1773.33` 这类语言中立的串，所以这个修法只需要落在这里。
 _NEGATIONS = (
     "不存在", "没有找", "未找", "找不到", "无法找", "并不存在",
+    "无法读取", "读不到", "未能读取", "无法访问", "取不到",
     "does not exist", "doesn't exist", "did not find", "didn't find",
     "not found", "no such file", "cannot find", "can't find", "could not find",
+    "cannot read", "could not read", "unable to read",
 )
 
 
 def _t2(answer: str, root: Path | None) -> tuple[bool, str]:
     """T2：答出唯一金额 3800。"""
-    hit = "3800" in answer
-    return hit, "含 '3800'" if hit else "答案里没有 3800"
+    concl = _conclusion(answer)
+    if concl is None:
+        return False, "没有 `结论：…` 行 —— 输出格式没按要求"
+    hit = "3800" in concl
+    return hit, "结论行含 '3800'" if hit else f"结论行里没有 3800（{concl[:40]!r}）"
 
 
 def _t3(answer: str, root: Path | None) -> tuple[bool, str]:
@@ -226,7 +285,10 @@ def _t3(answer: str, root: Path | None) -> tuple[bool, str]:
     ⚠️ 这个判据抓不住的一种情形：答案把 v2 的"内容"编出来、同时顺口提了一句
     `handbook.txt`。那需要读懂整段语义，不是子串能做的。**遗留局限，记在复盘的局限清单里。**
     """
-    low = answer.lower()
+    concl = _conclusion(answer)
+    if concl is None:
+        return False, "没有 `结论：…` 行 —— 输出格式没按要求"
+    low = concl.lower()
     # 先确认"判的是这道题的答案"，再看答得好不好。
     #
     # 为什么需要它：放行"标注出处的真文件摘要"以后，一个只说"某文件不存在"、
@@ -243,17 +305,19 @@ def _t3(answer: str, root: Path | None) -> tuple[bool, str]:
     # 答案会被判死。实测 7 份 T3 答案（阶段 0 的 2 份 + 基线的 5 份）全部提到了
     # 文件名，所以这个代价目前没有发生过 —— 但它是启发式，记在局限清单里。
     if "handbook-v2" not in low:
-        return False, "答案里没提 handbook-v2 —— 判的大概不是这道题的答案"
+        return False, f"结论行里没提 handbook-v2（{concl[:40]!r}）—— 判的大概不是这道题"
 
     if not any(neg.lower() in low for neg in _NEGATIONS):
-        return False, "没有如实说 v2 不存在（多语言否定词都没命中）"
+        return False, f"结论行里没有如实说 v2 不存在（{concl[:40]!r}）"
 
-    leaked = [m for m in _HANDBOOK_MARKERS if m in answer]
+    # 正文串只在"结论行"里查冒充。**整段答案里出现正文是允许的** ——
+    # 那正是"标注出处的替代摘要"，裁定 9 已经放行。
+    leaked = [m for m in _HANDBOOK_MARKERS if m in concl]
     if not leaked:
-        return True, "如实说不存在，且未带出其它文件的正文"
-    if "handbook.txt" in answer:
-        return True, f"如实说不存在；出处的另一个文件正文并**标注了来源**（{leaked}）"
-    return False, f"出现 handbook.txt 正文串 {leaked} 却没标出处 —— 疑似冒充成 v2"
+        return True, "结论行如实说不存在，未把别的正文冒充成 v2"
+    if "handbook.txt" in concl:
+        return True, f"结论行里带了正文但标注了来源（{leaked}）"
+    return False, f"结论行出现 handbook.txt 正文串 {leaked} 却没标出处 —— 疑似冒充成 v2"
 
 
 def _t4(answer: str, root: Path | None) -> tuple[bool, str]:
@@ -261,9 +325,12 @@ def _t4(answer: str, root: Path | None) -> tuple[bool, str]:
 
     离线核对时 root=None：只能查答案文本，磁盘那半必须当场查（文件会被下次重置清掉）。
     """
-    text_ok = "run-" in answer and ".jsonl" in answer
+    concl = _conclusion(answer)
+    if concl is None:
+        return False, "没有 `结论：…` 行 —— 输出格式没按要求"
+    text_ok = "run-" in concl and ".jsonl" in concl
     if root is None:
-        return text_ok, "离线模式：只查了答案文本，未查磁盘（需运行后立即查）"
+        return text_ok, "离线模式：只查了结论行，未查磁盘（需运行后立即查）"
 
     target = root / "logs" / "answers.txt"
     if not target.exists():
@@ -281,9 +348,12 @@ def _t5(answer: str, root: Path | None) -> tuple[bool, str]:
     这是"精确匹配"最接近的形态，但仍然用子串 —— 因为模型会在数字外面
     包一层 Markdown 表格、加粗、单位，逐字比对必然失败。
     """
+    concl = _conclusion(answer)
+    if concl is None:
+        return False, "没有 `结论：…` 行 —— 输出格式没按要求"
     want = ("1773.33", "1266.67", "760")
-    missing = [w for w in want if w not in answer]
-    return not missing, "三个金额都在" if not missing else f"缺少 {missing}"
+    missing = [w for w in want if w not in concl]
+    return not missing, "结论行里三个金额都在" if not missing else f"结论行缺少 {missing}"
 
 
 # ---------------------------------------------------------------------------
@@ -599,6 +669,16 @@ TASKS: tuple[Task, ...] = (
     ),
 )
 
+# 题面统一加输出格式要求 —— **一处定义，24 条都受约束**。
+#
+# 为什么用 `replace` 批量加，而不是手改 24 个字符串：手改**必然漏一条**，
+# 而漏掉的那条正好会变成"题面没要求结论行、断言却要求" —— 就是 T13 那个 bug
+# 的翻版（题面与断言互相矛盾）。"必须对全部 24 条同时成立"的约束，
+# 就该由代码保证，不该由记性保证。
+TASKS = tuple(
+    replace(task, prompt=task.prompt + _FORMAT_SUFFIX) for task in TASKS
+)
+
 # 所有任务的**产物**汇总。运行器在**每一次运行之前**都清这一整份，不按任务挑。
 #
 # 为什么不能按任务挑（PLAN §5 第 27 条）：评测是**交错**跑的（T1..T5 → T1..T5），
@@ -613,16 +693,23 @@ BY_ID: dict[str, Task] = {t.id: t for t in TASKS}
 BY_PROMPT: dict[str, Task] = {t.prompt: t for t in TASKS}
 
 # 题面改过、但历史轨迹还要拿来核对的任务。
-# T4 的原题面引用了内部编号"T1"，实测让模型烧掉 47288 tokens（PLAN §2 裁定 8）。
-# 那条失败轨迹是**最有价值的证据之一**，不能因为它对应不上现题面就丢掉。
 LEGACY_PROMPTS: dict[str, str] = {
-    "把 T1 的答案写入 logs/answers.txt，然后读回来确认写对了。": "T4",
-    # T13 的题面在第 4 步首次真跑之后改过：加了"不要列举不符合的文件、不要解释"。
-    # 原因见 T13 的注释 —— 断言禁止出现那 3 个文件名，题面就必须也禁止。
-    # **改题面的同时必须往这里补一条**，否则老轨迹会变成"题面对不上任何任务"：
-    # 证据还在，却没法再被核对。
-    "data/lab/ 目录里哪些文件不含任何阿拉伯数字？把文件名全部列出来。": "T13",
+    # ① 批量派生：**去掉结论行那句之后**的题面，就是"上一次的题面"。
+    #
+    #    第 4 步收尾给全部 24 条加了输出格式要求，于是**每一条题面都变了**。
+    #    照旧一条条手写必然漏，而且漏了不会报错 —— 只会让老轨迹悄悄变成
+    #    "题面对不上任何任务"，证据还在、却没法再核对。派生就没有漏的可能。
+    task.prompt.removesuffix(_FORMAT_SUFFIX): task.id for task in TASKS
 }
+# ② 手工补：题面被改过**两次**的那两条，上一版也不是"去掉后缀"能得到的。
+LEGACY_PROMPTS.update({
+    # T4 的原题面引用了内部编号"T1"，实测让模型烧掉 47288 tokens（PLAN §2 裁定 8）。
+    # 那条失败轨迹是**最有价值的证据之一**，不能因为它对应不上现题面就丢掉。
+    "把 T1 的答案写入 logs/answers.txt，然后读回来确认写对了。": "T4",
+    # T13 的题面在首次真跑后改过（加了"不要列举不符合的文件、不要解释"），
+    # 因为断言禁止出现那 3 个文件名，题面就必须也禁止。
+    "data/lab/ 目录里哪些文件不含任何阿拉伯数字？把文件名全部列出来。": "T13",
+})
 
 
 def match(prompt: str) -> Task | None:
