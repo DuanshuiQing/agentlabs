@@ -199,6 +199,16 @@ skill 的发现根由「最近的含 `.git` 的祖先目录」决定，没有 `.
 - 教训：和上面第 12 条是同一类坑 —— **落盘动作本身会改变你以为是"不变"的东西**。
   改完源码先量换行符，再 `git add`
 
+**14. PowerShell 5.1 的 `Out-File` / `Set-Content -Encoding utf8` 会**加 BOM**，而 `git commit -F` 会把它写进提交信息首行**
+
+- 症状：`git log --oneline` 的标题前面多一个看不见的字符，`git log -1 --pretty=%s` 复制出来对不上
+- 根因：PS 5.1 的 `utf8` 编码 = **UTF-8 with BOM**；`git` 原样读文件，BOM 就成了提交信息第 0 个字符
+- **修法**：写提交信息用 `write` 工具（或 `[IO.File]::WriteAllText($p, $s, [Text.UTF8Encoding]::new($false))`），
+  不要用 `Out-File` / `Set-Content -Encoding utf8`。写完先量：`[IO.File]::ReadAllBytes($p)[0..2]` 不许是 `239,187,191`
+- 已经推上去的，`git commit --amend -F <干净文件>` + `git push --force-with-lease` 修掉，别留着
+- 实测：一天之内犯了两次（`1bb4cf3` 前身、`c072049`），两次都是"提交后才发现"，因为标题看着是对的
+- 教训：**你验的是"命令成功了吗"，而坏掉的是"那个成功里装的是什么"**
+
 ## 两条边界（设计，不是故障）
 
 1. **权限**：本会话是 `workspace-write` + 逐次批准。`D:\Agent_test` 内可写，**区外只读**，越界会弹批准。
