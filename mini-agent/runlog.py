@@ -76,7 +76,13 @@ def _new_log_path(now: datetime | None = None) -> Path:
 class RunLog:
     """一次运行的轨迹文件。用 `with` 包住，异常也保证留下痕迹。"""
 
-    def __init__(self, task: str, model: str, max_steps: int) -> None:
+    def __init__(
+        self,
+        task: str,
+        model: str,
+        max_steps: int,
+        tools: tuple[str, ...] | None = None,
+    ) -> None:
         LOGS_DIR.mkdir(parents=True, exist_ok=True)
         self.path = _new_log_path()
         self.run_id = self.path.stem
@@ -91,6 +97,9 @@ class RunLog:
             run_id=self.run_id,
             model=model,
             max_steps=max_steps,
+            # 这次运行给了模型哪些工具 —— 消融（第 5 步）会临时删掉某个工具，
+            # 而**一份说不清自己给了什么工具的轨迹，事后没法归因**。
+            tools=list(tools) if tools is not None else None,
             started_at=datetime.now().astimezone().isoformat(timespec="seconds"),
         )
 

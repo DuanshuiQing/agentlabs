@@ -62,7 +62,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from llm import MODEL, call_model
 from runlog import RunLog
-from tools import ROOT, TOOLS, Observation, dispatch
+from tools import ROOT, TOOL_NAMES, TOOLS, Observation, dispatch
 
 MAX_STEPS = 10
 
@@ -182,7 +182,9 @@ def run(task: str, max_steps: int = MAX_STEPS, verbose: bool = True) -> Result:
     if max_steps < 1:
         raise ValueError(f"max_steps 至少要 1，收到 {max_steps}")
 
-    with RunLog(task=task, model=MODEL, max_steps=max_steps) as log:
+    with RunLog(
+        task=task, model=MODEL, max_steps=max_steps, tools=TOOL_NAMES
+    ) as log:
         if verbose:
             print(f"轨迹：{log.path}")
         messages: list[dict] = [{"role": "user", "content": task}]

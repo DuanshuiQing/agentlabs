@@ -79,6 +79,7 @@ from __future__ import annotations
 import ast
 import math
 import operator
+import os
 import sys
 import threading
 import time
@@ -535,10 +536,52 @@ _TOOL_SPECS: tuple[ToolSpec, ...] = (
     ),
 )
 
-_REGISTRY: dict[str, ToolSpec] = {spec.name: spec for spec in _TOOL_SPECS}
+# ---------------------------------------------------------------------------
+# 消融开关（阶段 1 第 5 步）：临时不给模型某个工具，量它到底值多少
+#
+# **默认必须为空** —— 常态下这个开关什么都不做，所以它不影响任何既有结果。
+# 用环境变量而不是改代码，是为了让同一次实验**可复现**：
+#
+#     $env:DSH_AGENT_DROP_TOOLS = "list_dir"
+#     mini-agent\.venv\Scripts\python.exe evals\run_eval.py --n 1
+#
+# 为什么需要它：基线 24/24 全过，意味着"往上加"没有空间可测 ——
+# 任何改进都只能证明"无害"。**有价值的消融是降级**：故意弄坏一处，
+# 看通过率掉多少，那才量得出这件事值多少。
+#
+# ⚠️ 被删掉的工具会同时从 `TOOLS`（模型看的 schema）和 `_REGISTRY`（dispatch 的
+# 查表）里消失 —— 模型看不见它，硬调用会得到 `unknown_tool`。
+# 两份数据同源，不能只删一处，否则会出现"模型看得见但调不通"的幻觉工具。
+# ---------------------------------------------------------------------------
+_DROP_TOOLS: tuple[str, ...] = tuple(
+    name.strip()
+    for name in os.environ.get("DSH_AGENT_DROP_TOOLS", "").split(",")
+    if name.strip()
+)
+
+_ALL_SPECS: tuple[ToolSpec, ...] = (
+    _TOOL_SPECS  # 上面那个完整列表；保留名字，方便对照
+)
+
+_ACTIVE_SPECS: tuple[ToolSpec, ...] = tuple(
+    spec for spec in _ALL_SPECS if spec.name not in _DROP_TOOLS
+)
+
+# 写错工具名就当场炸，而不是"消融没生效、结果看起来正常"
+_unknown_drops = set(_DROP_TOOLS) - {spec.name for spec in _ALL_SPECS}
+if _unknown_drops:
+    raise SystemExit(
+        f"DSH_AGENT_DROP_TOOLS 里有不存在的工具 {sorted(_unknown_drops)}；"
+        f"可选 {[spec.name for spec in _ALL_SPECS]}"
+    )
+
+_REGISTRY: dict[str, ToolSpec] = {spec.name: spec for spec in _ACTIVE_SPECS}
 
 # 模型能看见的全部内容就是这个列表，它由上面的 ToolSpec 生成
-TOOLS: list[dict] = [spec.schema() for spec in _TOOL_SPECS]
+TOOLS: list[dict] = [spec.schema() for spec in _ACTIVE_SPECS]
+
+# 这次运行实际给了模型哪些工具（进轨迹头部，让每份轨迹自己说得清）
+TOOL_NAMES: tuple[str, ...] = tuple(spec.name for spec in _ACTIVE_SPECS)
 
 
 # ---------------------------------------------------------------------------

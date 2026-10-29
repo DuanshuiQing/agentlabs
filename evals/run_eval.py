@@ -80,6 +80,7 @@ sys.path.insert(0, str(HERE))
 # `--plan` 和 `--replay` 都发现不了，因为它们不导入 agent，只有真跑才炸。
 sys.path.insert(0, str(MINI))
 from tasks import BY_ID, MINI_ROOT, PRODUCTS, RESTORE, TASKS, self_check  # noqa: E402
+import tools as mini_tools  # noqa: E402 —— 读这次实际注册了哪些工具
 
 # 工作区里**允许**出现的变更：新增的轨迹。别的一律算"隔离没做好"。
 _ONLY_ALLOWED = re.compile(r"^mini-agent/logs/run-\d{8}-\d{6}(?:-\d+)?\.jsonl$")
@@ -462,6 +463,9 @@ def plan_only(tasks, n: int, max_steps: int, replay_mode: bool) -> int:
         print(f"  {path}  {mark}")
 
     print(f"\n全局前置清理：删 {list(PRODUCTS)}；还原 {list(RESTORE)} 到原样")
+    print(f"工具：{list(mini_tools.TOOL_NAMES)}")
+    if mini_tools._DROP_TOOLS:
+        print(f"⚠️ 消融中：已删除 {list(mini_tools._DROP_TOOLS)}")
     print(f"最大步数  ：{max_steps}")
     print(f"模式      ：{'--replay（零成本，重放历史答案）' if replay_mode else '真实运行（花钱）'}")
 
@@ -570,6 +574,10 @@ def main() -> int:
         "tasks": [t.id for t in tasks],
         "products_cleared": list(PRODUCTS),
         "fixtures_restored": list(RESTORE),
+        # 消融（第 5 步）会临时删掉某个工具。**不记下来的话，
+        # 一份"通过率掉了"的结果事后无法归因** —— 和"没记 git rev"是同一类错误。
+        "tools_active": list(mini_tools.TOOL_NAMES),
+        "tools_dropped": list(mini_tools._DROP_TOOLS),
         "budget": {t.id: t.budget_tokens for t in tasks},
         "runs": records,
         "summary": {**summary, "fail_reason": sorted(summary["fail_reason"])},
