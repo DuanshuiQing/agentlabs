@@ -60,6 +60,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -466,6 +467,16 @@ def plan_only(tasks, n: int, max_steps: int, replay_mode: bool) -> int:
     print(f"工具：{list(mini_tools.TOOL_NAMES)}")
     if mini_tools._DROP_TOOLS:
         print(f"⚠️ 消融中：已删除 {list(mini_tools._DROP_TOOLS)}")
+    # 消融 A / C 同样要在**花钱之前**显示出来 —— 跑完才发现环境变量没生效，
+    # 那 140k tokens 就白花了，而且结果看起来完全正常。
+    if mini_tools.BLURRED:
+        for name, desc in mini_tools.BLURRED.items():
+            print(f"⚠️ 消融中：{name} 的描述被模糊成 {desc!r}")
+    # 这里只回显环境变量，不 import agent（--plan 不该把 .env / openai 拉进来）。
+    # 名字写错会在 `import agent` 时立刻退出，那一步发生在**第一次 API 调用之前**。
+    _sys_key = os.environ.get("DSH_AGENT_SYSTEM", "").strip()
+    if _sys_key:
+        print(f"⚠️ 消融中：system 提示 = {_sys_key!r}（由 agent.SYSTEM_PROMPTS 展开）")
     print(f"最大步数  ：{max_steps}")
     print(f"模式      ：{'--replay（零成本，重放历史答案）' if replay_mode else '真实运行（花钱）'}")
 
@@ -578,6 +589,9 @@ def main() -> int:
         # 一份"通过率掉了"的结果事后无法归因** —— 和"没记 git rev"是同一类错误。
         "tools_active": list(mini_tools.TOOL_NAMES),
         "tools_dropped": list(mini_tools._DROP_TOOLS),
+        # 消融 A / C 的另外两个自变量。同理：不记下来就无法归因。
+        "tools_blurred": dict(mini_tools.BLURRED),
+        "system_prompt": _system_prompt(),
         "budget": {t.id: t.budget_tokens for t in tasks},
         "runs": records,
         "summary": {**summary, "fail_reason": sorted(summary["fail_reason"])},
@@ -603,6 +617,19 @@ def _model_name() -> str:
         return agent.MODEL
     except Exception:  # noqa: BLE001 —— 拿不到模型名不该让报告失败
         return "unknown"
+
+
+def _system_prompt() -> str | None:
+    """这次运行加的 system 提示原文（None = 没加）。
+
+    和 `_model_name` 一样延迟 import：`--plan` 那条路径不该把 `.env` / openai 拉进来。
+    """
+    try:
+        import agent  # noqa: PLC0415
+
+        return agent.SYSTEM_PROMPT
+    except Exception:  # noqa: BLE001
+        return None
 
 
 if __name__ == "__main__":

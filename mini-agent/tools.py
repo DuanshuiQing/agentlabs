@@ -83,7 +83,7 @@ import os
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
@@ -563,9 +563,61 @@ _ALL_SPECS: tuple[ToolSpec, ...] = (
     _TOOL_SPECS  # 上面那个完整列表；保留名字，方便对照
 )
 
-_ACTIVE_SPECS: tuple[ToolSpec, ...] = tuple(
-    spec for spec in _ALL_SPECS if spec.name not in _DROP_TOOLS
+# ---------------------------------------------------------------------------
+# 消融 A（阶段 1 第 5 步）：**模糊**一个工具的描述，而不是删掉它
+#
+# 消融 B 问的是"没有这个工具会怎样"，这个问的是"有工具、但描述写得很糟" ——
+# 后者更接近真实情况：工具都给了，模型还是选错、或者根本不用。
+#
+#     $env:DSH_AGENT_BLUR_TOOLS = "read_file"
+#     mini-agent\.venv\Scripts\python.exe evals\run_eval.py --n 1
+#
+# 模糊成什么样：**只留名字**。description 变成「工具 read_file。」，
+# 每个参数的说明退化成参数名本身。名字和参数名都还在，所以调用方式没变 ——
+# 少的只是「什么时候该用它」「它返回什么」「path 相对哪个目录」。
+# 这正是描述里唯一不可替代的那部分。
+#
+# ⚠️ 一个工具不能既删又模糊 —— 那两种消融会缠在一起，效应无法归因。
+# ---------------------------------------------------------------------------
+_BLUR_TOOLS: tuple[str, ...] = tuple(
+    name.strip()
+    for name in os.environ.get("DSH_AGENT_BLUR_TOOLS", "").split(",")
+    if name.strip()
 )
+
+_unknown_blur = set(_BLUR_TOOLS) - {spec.name for spec in _ALL_SPECS}
+if _unknown_blur:
+    raise SystemExit(
+        f"DSH_AGENT_BLUR_TOOLS 里有不存在的工具 {sorted(_unknown_blur)}；"
+        f"可选 {[spec.name for spec in _ALL_SPECS]}"
+    )
+if set(_BLUR_TOOLS) & set(_DROP_TOOLS):
+    raise SystemExit(
+        f"同一个工具不能既删又模糊：{sorted(set(_BLUR_TOOLS) & set(_DROP_TOOLS))}"
+    )
+
+
+def _blur(spec: ToolSpec) -> ToolSpec:
+    """只留名字的工具描述。参数名保留，说明退化成名字本身。"""
+    return replace(
+        spec,
+        description=f"工具 {spec.name}。",
+        params={name: name for name in spec.params},
+    )
+
+
+_ACTIVE_SPECS: tuple[ToolSpec, ...] = tuple(
+    _blur(spec) if spec.name in _BLUR_TOOLS else spec
+    for spec in _ALL_SPECS
+    if spec.name not in _DROP_TOOLS
+)
+
+# 这次被模糊掉的工具 -> 模糊后的 description（进轨迹头部与结果 JSON）
+BLURRED: dict[str, str] = {
+    spec.name: spec.description
+    for spec in _ACTIVE_SPECS
+    if spec.name in _BLUR_TOOLS
+}
 
 # 写错工具名就当场炸，而不是"消融没生效、结果看起来正常"
 _unknown_drops = set(_DROP_TOOLS) - {spec.name for spec in _ALL_SPECS}

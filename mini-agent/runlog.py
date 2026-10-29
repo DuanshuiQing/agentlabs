@@ -82,6 +82,8 @@ class RunLog:
         model: str,
         max_steps: int,
         tools: tuple[str, ...] | None = None,
+        system: str | None = None,
+        blurred: dict[str, str] | None = None,
     ) -> None:
         LOGS_DIR.mkdir(parents=True, exist_ok=True)
         self.path = _new_log_path()
@@ -100,6 +102,10 @@ class RunLog:
             # 这次运行给了模型哪些工具 —— 消融（第 5 步）会临时删掉某个工具，
             # 而**一份说不清自己给了什么工具的轨迹，事后没法归因**。
             tools=list(tools) if tools is not None else None,
+            # 消融 C 加的系统提示（原文）。None = 这次没加。
+            system=system,
+            # 消融 A 被模糊掉的工具名 -> 模糊后的 description。
+            tools_blurred=blurred or None,
             started_at=datetime.now().astimezone().isoformat(timespec="seconds"),
         )
 

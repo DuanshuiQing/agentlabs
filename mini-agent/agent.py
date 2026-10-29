@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -62,9 +63,39 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from llm import MODEL, call_model
 from runlog import RunLog
-from tools import ROOT, TOOL_NAMES, TOOLS, Observation, dispatch
+from tools import BLURRED, ROOT, TOOL_NAMES, TOOLS, Observation, dispatch
 
 MAX_STEPS = 10
+
+# ---------------------------------------------------------------------------
+# 消融 C（阶段 1 第 5 步）：加一条 system 提示
+#
+# 现状：24 条评测**全是单条 user message，一条 system 都没有**。这既是缺口，
+# 也是一个干净的增量变量 —— 只加它，别的什么都不动。
+#
+#     $env:DSH_AGENT_SYSTEM = "minimal"
+#     mini-agent\.venv\Scripts\python.exe evals\run_eval.py --n 1
+#
+# 写什么：**只写任何人都该写在 system 里的三件事**（角色 / 先用工具查 / 查不到就说）。
+# 故意不写进 system 的：
+#   * 「最后一行写结论：…」—— 题面里已经有了。放进 system 量的是"强调"，不是"有无"。
+#   * 任何关于这台机器上有什么文件的提示 —— 那是答案泄漏。
+# 一句话：这条 system 提示换任何一个 agent 都该写得出来，它不是为这套题定制的。
+# ---------------------------------------------------------------------------
+SYSTEM_PROMPTS: dict[str, str] = {
+    "minimal": (
+        "你是一个能使用工具的助手。需要用事实说话时，先用工具去查，"
+        "不要凭猜测填充；查不到就如实说查不到。"
+    ),
+}
+
+_SYSTEM_KEY = os.environ.get("DSH_AGENT_SYSTEM", "").strip()
+if _SYSTEM_KEY and _SYSTEM_KEY not in SYSTEM_PROMPTS:
+    raise SystemExit(
+        f"DSH_AGENT_SYSTEM={_SYSTEM_KEY!r} 没有定义；可选 {sorted(SYSTEM_PROMPTS)}"
+    )
+# None = 这次运行不加 system（默认，常态行为一个字都不变）
+SYSTEM_PROMPT: str | None = SYSTEM_PROMPTS.get(_SYSTEM_KEY) if _SYSTEM_KEY else None
 
 
 def usage_of(resp: Any) -> dict | None:
@@ -183,11 +214,22 @@ def run(task: str, max_steps: int = MAX_STEPS, verbose: bool = True) -> Result:
         raise ValueError(f"max_steps 至少要 1，收到 {max_steps}")
 
     with RunLog(
-        task=task, model=MODEL, max_steps=max_steps, tools=TOOL_NAMES
+        task=task,
+        model=MODEL,
+        max_steps=max_steps,
+        tools=TOOL_NAMES,
+        system=SYSTEM_PROMPT,
+        blurred=BLURRED,
     ) as log:
         if verbose:
             print(f"轨迹：{log.path}")
-        messages: list[dict] = [{"role": "user", "content": task}]
+        messages: list[dict] = []
+        # 消融 C：system 必须在最前面，且它自己也是一条轨迹记录 ——
+        # 事后看一份轨迹，得能知道当时到底发了什么。
+        if SYSTEM_PROMPT:
+            messages.append({"role": "system", "content": SYSTEM_PROMPT})
+            log.message(step=0, role="system", content=SYSTEM_PROMPT)
+        messages.append({"role": "user", "content": task})
         log.message(step=0, role="user", content=task)
 
         for step in range(1, max_steps + 1):
