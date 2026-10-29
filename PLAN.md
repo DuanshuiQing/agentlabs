@@ -740,6 +740,27 @@ T3 是四条里最有价值的一条：它测的不是模型能力，而是**你
 **阶段 2–4**
 
 - [ ] 阶段 2：写出 2 个 skill（含 1 个专业相关），**只描述任务不提名字也能触发**
+    - [x] **第 1 步：脚手架 + 判据 + 第一个 skill**（零 API 成本）
+          [`check_skills.py`](check_skills.py)：把 README 里那套发现规则变成 9 类可执行检查
+          —— 形态（目录包/平铺/散装 `.md`）/ frontmatter / kebab-case 且与入口名一致 /
+          description 的「何时用」线索 / 正文 ≤500 行 / **引用的相对路径必须存在** /
+          引用深度 ≤1 / 不许绝对路径 / 不许与内置 skill 重名。
+          **`--self-test` 才是它的存在意义**：造 7 个坏 skill + 1 个好 skill，
+          逐个确认会报、且好样本不被误报（10/10）。和"改坏一次看它报不报"是同一条纪律。
+    - [x] **第一个 skill：`inspecting-agent-traces`**（三层结构全部用上）
+          [`SKILL.md`](.dsh/skills/inspecting-agent-traces/SKILL.md)（层 2，短文）+
+          `scripts/trace_summary.py`（确定性解析，脚本内容不进上下文）+
+          `references/trace-schema.md`（层 3：字段表 + 三条坑，**只在要写新查询时才读**）。
+          实测三件事：① 写完**立刻**出现在本会话的 skill catalog 里（热加载，不用重启）；
+          ② `skill` 工具加载成功，且 harness 会注入 **Base directory**、要求相对路径按它解析
+          —— 所以 SKILL.md 里写的是 skill 相对路径；③ 脚本在真实轨迹上与结果 JSON 对账一致
+          （9303 tokens / 6 步 / 13 次工具调用 / 结论行一致）。
+          它替掉的是本项目里重复最多的一次性劳动：手写 PowerShell 解析这几种 `role`。
+    - [ ] **第 2 步：触发率测试**（**只描述任务、不提 skill 名字**，看它会不会自己加载）
+          + 第二个 skill（**专业相关**，方向待定）。
+          硬信号的取法：会话轨迹在 `~/.dsh/sessions/--<工作区>--/<session>/session.v4.jsonl.zstd`，
+          用 `D:\node.js\node.exe` 的 `zlib.zstdDecompressSync` 解得开 ——
+          **"到底有没有加载"要读这个，不能只信 agent 的自述**（阶段 1 第 5 条教训）。
 - [ ] 阶段 3：自写 MCP server 并接入客户端；接上 trace
 - [ ] 阶段 4：累计 10 篇论文摘要，选定一个可验证的小问题
 
