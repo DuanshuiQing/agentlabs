@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "mode": "real",
+  "started_at": "2026-10-29T21:48:53",
+  "finished_at": "2026-10-29T21:48:56",
+  "git_rev": "152b6b4117a129e4838cc76aa0ba4039b3a73e4d",
+  "git_dirty": [],
+  "model": "deepseek-chat",
+  "max_steps": 10,
+  "n": 1,
+  "tasks": [
+    "T14"
+  ],
+  "products_cleared": [
+    "logs/answers.txt"
+  ],
+  "fixtures_restored": [
+    "data/lab/draft.txt"
+  ],
+  "tools_active": [
+    "read_file",
+    "list_dir",
+    "calculator",
+    "append_file"
+  ],
+  "tools_dropped": [],
+  "tools_blurred": {},
+  "system_prompt": "你是一个能使用工具的助手。需要用事实说话时，先用工具去查，不要凭猜测填充；查不到就如实说查不到。",
+  "budget": {
+    "T14": 16000
+  },
+  "runs": [
+    {
+      "index": 1,
+      "task": "T14",
+      "fact": "lab-threshold",
+      "trace": "run-20261029-214854.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 1852,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "结论行含 3000",
+      "elapsed_s": 1.99
+    }
+  ],
+  "summary": {
+    "total_runs": 1,
+    "pass": 1,
+    "pass_rate": 1.0,
+    "fail_reason": [],
+    "tokens_total": 1852,
+    "by_task": {
+      "T14": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 1852,
+        "tokens_max": 1852,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      }
+    },
+    "facts": {
+      "lab-threshold": {
+        "tasks": [
+          "T14"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      }
+    }
+  }
+}

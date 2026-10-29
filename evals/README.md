@@ -357,6 +357,24 @@ mini-agent\.venv\Scripts\python.exe evals\probe_isolation.py             # 2 次
 
 `--plan` 会在真跑前把"约 67560（顺利）～174288（撞 max_steps）tokens"打出来。撞一次 `max_steps` 就是 47288 tokens ≈ 47 倍于最便宜的那次。
 
+### 消融开关（三个环境变量，**默认全关**）
+
+"每次只改一处"在这里是**环境变量**，不是改代码 —— 否则同一份结果就说不清它对应哪一版行为。
+
+| 开关 | 消融 | 实际改了什么 | 记在哪 |
+|---|---|---|---|
+| `DSH_AGENT_DROP_TOOLS=list_dir` | B：删掉工具 | 从 `TOOLS` 和 `_REGISTRY` 同时消失 | `tools` / `tools_dropped` |
+| `DSH_AGENT_BLUR_TOOLS=read_file` | A：模糊描述 | description → 「工具 read_file。」，参数说明 → 参数名 | `tools_blurred` |
+| `DSH_AGENT_SYSTEM=minimal` | C：加 system | 在最前面插一条 system 消息 | `system` / `system_prompt` |
+
+三条纪律：
+
+- **三个都默认空** —— 常态行为一个字不变，既有结果不受影响。
+- **`--plan` 会在花钱之前把生效的消融打出来**。跑完才发现环境变量没生效，那 140k 就白花了，而且结果看起来完全正常。
+- **写错名字当场退出**（不存在的工具名 / 同一个工具既删又模糊 / 未定义的 system 名）。退出发生在**第一次 API 调用之前**，不会"花到一半才发现"。
+
+三个消融的实测数字记在 [PLAN §7](../PLAN.md)；结论与教训在 §5 第 45、49–51 条。
+
 ## 8. 三个动手实验（改坏 → 看谁报警 → 还原）
 
 实验的意义：**判据也是代码，也会错**。下面三个都是 1 分钟以内、零成本，各自证明一个守卫真的在工作（三个都实测过，输出照抄自终端）。
