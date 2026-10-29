@@ -758,9 +758,15 @@ T3 是四条里最有价值的一条：它测的不是模型能力，而是**你
           它替掉的是本项目里重复最多的一次性劳动：手写 PowerShell 解析这几种 `role`。
     - [ ] **第 2 步：触发率测试**（**只描述任务、不提 skill 名字**，看它会不会自己加载）
           + 第二个 skill（**专业相关**，方向待定）。
-          硬信号的取法：会话轨迹在 `~/.dsh/sessions/--<工作区>--/<session>/session.v4.jsonl.zstd`，
-          用 `D:\node.js\node.exe` 的 `zlib.zstdDecompressSync` 解得开 ——
-          **"到底有没有加载"要读这个，不能只信 agent 的自述**（阶段 1 第 5 条教训）。
+          **冒烟（N=1，已做）**：给一个**新上下文的 subagent** 只描述任务
+          （"看最新一次运行：多少 tokens、几步、几次调用、有没有报错"），**不提 skill 名字**；
+          它答出的四个数带 `cached 7040`，追问"你加载了哪个 skill"回答 `inspecting-agent-traces`
+          —— **触发成立**。但 N=1 且信号之一是自述，还不能当"触发率"。
+          **硬信号没找到（这条要记住）**：`~/.dsh/sessions/--<工作区>--/<session>/session.v4.jsonl.zstd`
+          是**多帧 zstd**（帧头在 offset 0 和 200，之后还有十几帧），Node 的 `zstdDecompressSync`
+          只解第一帧（256 字节的会话头），流式解压在第二帧报 `Unknown frame descriptor` ——
+          **"读会话轨迹看有没有调 skill"目前不可靠**。第 2 步要么解决多帧解码，
+          要么改用 side-effect 标记（脚本被真实运行时留一行痕，比自述硬）。
 - [ ] 阶段 3：自写 MCP server 并接入客户端；接上 trace
 - [ ] 阶段 4：累计 10 篇论文摘要，选定一个可验证的小问题
 
