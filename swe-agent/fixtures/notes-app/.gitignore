@@ -1,0 +1,4 @@
+# 本地运行产物（测试会把临时 JSON 写进 .tmp/）
+.tmp/
+__pycache__/
+*.py[cod]

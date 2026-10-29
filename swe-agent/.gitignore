@@ -1,0 +1,17 @@
+# swe-agent 自己的忽略规则 —— 不改根目录 .gitignore（对既有文件零改动）
+
+# 一次性工作副本：每次运行从 fixtures/ 复制出来的沙箱，随时可重建
+sandbox/
+
+# 密钥
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# 运行期垃圾
+*.log

@@ -1,0 +1,9 @@
+# swe-agent 自己的换行规则 —— 不改根目录的 .gitattributes（对既有文件零改动）
+
+*.py    text eol=lf
+*.md    text eol=lf
+*.jsonl text eol=lf
+
+# patch 是**证据**，必须逐字节保留：行尾是 LF 还是 CRLF 本身就是实验信息的一部分，
+# 让 git 去"归一化"它，等于让证据在 checkout 之后和当时看到的不一样。
+*.diff  -text

@@ -1,0 +1,13 @@
+diff --git a/notes/reminder.py b/notes/reminder.py
+index 2da4489..2d37527 100644
+--- a/notes/reminder.py
++++ b/notes/reminder.py
+@@ -23,7 +23,7 @@ def parse_duration(text: str) -> int:
+     minutes = int(match.group(2) or 0)
+     if minutes >= 60:
+         raise ValueError("分钟部分必须小于 60：写 1h30m，不要写 0h90m")
+-    total = hours * 60 + minutes * 60
++    total = (hours * 60 + minutes) * 60
+     if total <= 0:
+         raise ValueError("时长必须大于 0")
+     return total
