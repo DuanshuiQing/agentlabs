@@ -1,0 +1,17 @@
+diff --git a/notes/query.py b/notes/query.py
+index 92ebba2..a658f44 100644
+--- a/notes/query.py
++++ b/notes/query.py
+@@ -14,7 +14,11 @@ def search(notes: list[Note], keyword: str) -> list[Note]:
+     needle = (keyword or "").strip().lower()
+     if not needle:
+         return list(notes)
+-    return [n for n in notes if needle in n.title or needle in n.body]
++    return [
++        n
++        for n in notes
++        if needle in n.title.lower() or needle in n.body.lower()
++    ]
+ 
+ 
+ def filter_notes(

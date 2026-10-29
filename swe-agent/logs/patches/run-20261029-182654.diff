@@ -1,0 +1,14 @@
+diff --git a/notes/model.py b/notes/model.py
+index 762c585..07f1e20 100644
+--- a/notes/model.py
++++ b/notes/model.py
+@@ -64,7 +64,8 @@ class Note:
+             id=data["id"],
+             title=data["title"],
+             body=data.get("body", ""),
+-            tags=data["tags"],
++            # 早期导出的记录里没有 tags 键（见 docs/TODO.md），当作空列表处理
++            tags=data.get("tags") or [],
+             created_at=data.get("created_at", ""),
+         )
+ 

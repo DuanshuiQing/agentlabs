@@ -56,8 +56,34 @@ def prepare(*, name: str, source: Path, seed_files: Path | None = None) -> Path:
 
 
 def diff_of(repo: Path) -> str:
-    """agent 造成的改动（tracked 文件）。未跟踪的新文件不在里面 —— 单独看 `untracked`。"""
+    """agent 造成的改动（tracked 文件）。未跟踪的新文件不在里面 —— 用 `full_patch`。"""
     return _git(repo, "diff").stdout
+
+
+def full_patch(repo: Path) -> str:
+    """**完整** patch：已跟踪文件的修改 + 新建文件。
+
+    为什么不能只用 `git diff`：agent 用 `write_file` 新建的文件是 untracked，
+    `git diff` 一个字都看不到；而 `--rejudge` 正是靠重放 patch 才不用重跑 API。
+    `git add -A` 只动索引、不动工作区内容，所以取完 patch 再还原 tests/ 即可。
+    """
+    _git(repo, "add", "-A")
+    return _git(repo, "diff", "--cached").stdout
+
+
+def restore_all(repo: Path) -> None:
+    """把工作区与索引都退回基线 commit（重判前用）。"""
+    _git(repo, "reset", "--hard", "HEAD")
+
+
+def apply_patch(repo: Path, patch_file: Path) -> tuple[bool, str]:
+    """把归档的 patch 重放到一字不差的干净副本上；返回 (是否成功, 说明)。"""
+    if not patch_file.exists():
+        return False, f"patch 不存在: {patch_file.name}"
+    proc = _git(repo, "apply", "--whitespace=nowarn", str(patch_file))
+    if proc.returncode != 0:
+        return False, (proc.stderr or proc.stdout).strip()[:200]
+    return True, "ok"
 
 
 def status_of(repo: Path) -> list[str]:
@@ -70,5 +96,10 @@ def tests_tampered(repo: Path) -> bool:
 
 
 def restore_tests(repo: Path) -> None:
-    """判定前把 tests/ 还原成基线 —— 工具层拦一遍，这里再拦一遍（两层都要有）。"""
-    _git(repo, "checkout", "--", "tests")
+    """判定前把 tests/ 还原成**基线 commit** 里的版本 —— 工具层拦一遍，这里再拦一遍。
+
+    ⚠️ 必须是 `git checkout HEAD -- tests`，不能是 `git checkout -- tests`：
+    后者从**索引**还原，而取完整 patch 时执行过 `git add -A`，篡改过的测试已经进了索引。
+    写成后者的话，"还原"会原样还回篡改版 —— 判据失效且没有任何报错（判定器自检抓到过）。
+    """
+    _git(repo, "checkout", "HEAD", "--", "tests")

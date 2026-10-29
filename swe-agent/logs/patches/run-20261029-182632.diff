@@ -1,0 +1,12 @@
+diff --git a/notes/store.py b/notes/store.py
+index 88fc699..c46f8cf 100644
+--- a/notes/store.py
++++ b/notes/store.py
+@@ -44,6 +44,7 @@ class NoteStore:
+         payload = [n.to_dict() for n in sorted(self._notes.values(), key=lambda n: n.id)]
+         Path(path).write_text(
+             json.dumps(payload, ensure_ascii=False, indent=2),
++            encoding="utf-8",
+             newline="\n",
+         )
+         return len(payload)

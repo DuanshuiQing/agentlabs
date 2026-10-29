@@ -1,0 +1,229 @@
+{
+  "mode": "real",
+  "env": {
+    "git_rev": "5bcedd6",
+    "fixtures_dirty": false,
+    "seeds_dirty": false,
+    "model": "deepseek-chat",
+    "python": "3.12.10",
+    "started_at": "2026-10-29T18:26:19"
+  },
+  "n": 1,
+  "arm": "A0",
+  "options": {
+    "max_steps": 30,
+    "budget_tokens": 60000,
+    "wall_seconds": 480.0
+  },
+  "tasks": [
+    "S02",
+    "S04",
+    "S12",
+    "S13"
+  ],
+  "runs": [
+    {
+      "task_id": "S02",
+      "rep": 1,
+      "arm": "A0",
+      "trace": "run-20261029-182619.jsonl",
+      "patch": "run-20261029-182619.diff",
+      "answer": "剩下的 6 处命中都是函数体内的局部变量，不是默认参数；模型中字段使用 `default_factory=list`（见 `notes/model.py:36`），`make_note` 的 `tags` 默认值为 `None`。仓库内没有其他同类的可变默认参数问题。\n\n**结论**\n\n- **根因**：`notes/query.py` 的 `tag_index(notes, index={})` 把可变字典 `{}` 用作默认参数。Python 的默认参数只在函数定义时求值一次，因此所有未传 `index` 的调用共享同一个字典对象；第二次调用相当于继续往第一次的字典里追加条目，于是返回值和第一次的结果互相影响。文档字符串里其实已经写明「默认 `None` 而不是 `{}`」，但代码没有照此实现。\n- **改动**：`notes/query.py:36-44`，签名改为 `index: dict[str, list[str]] | None = None`，函数开头加 `if index is None: index = {}`，每次调用都新建独立字典；调用方显式传入已有索引时，仍按原语义在传入字典上继续追加。\n- **测试**：`tests.test_query.TestTagIndex` 两条全部通过，全量 57 条用例全部通过（退出码 0）。改动前该用例确实失败（`first` 变成 `['x', 'y']`），因此不是误报。",
+      "ok_selfcheck": true,
+      "steps": 7,
+      "reason": "stop",
+      "tokens": 33580,
+      "tests_exit": 0,
+      "tests_bad": 0,
+      "tool_calls": 9,
+      "tool_errors": [],
+      "over_budget": false,
+      "verdict": {
+        "task_id": "S02",
+        "mode": "tests",
+        "resolve": true,
+        "outcome": "solved",
+        "f2p_total": 1,
+        "f2p_ok": 1,
+        "f2p_missing": [],
+        "p2p_bad": [],
+        "tests_tampered": false,
+        "patch_empty": false,
+        "patch_files": [
+          "notes/query.py"
+        ],
+        "suite": {
+          "started": true,
+          "total": 57,
+          "passed": 57,
+          "failed": 0,
+          "errored": 0,
+          "error": ""
+        }
+      },
+      "elapsed_s": 12.0
+    },
+    {
+      "task_id": "S04",
+      "rep": 1,
+      "arm": "A0",
+      "trace": "run-20261029-182632.jsonl",
+      "patch": "run-20261029-182632.diff",
+      "answer": "修好了，全量 57 个用例全部通过。\n\n**根因**：`notes/store.py` 的 `NoteStore.dump_json` 用 `Path.write_text(...)` 写盘时没有指定 `encoding`，于是走了平台默认编码；在 Windows 上该编码是 GBK。而读取侧 `load_json` 固定用 `encoding=\"utf-8\"`，`json.dumps(..., ensure_ascii=False)` 又把中文原样写出，两边编码不一致，读回来就解码失败或变乱码。这个文件的 docstring 其实已经写了“必须显式 encoding=\"utf-8\"”，只是实现漏了。修复前复现到的报错正是 `UnicodeDecodeError: 'utf-8' codec can't decode byte 0xd6`，其中 `0xd6` 是 GBK 首字节。\n\n**改动**：仅一处，`notes/store.py` 第 45-49 行的写盘调用中补上 `encoding=\"utf-8\"`（现在在第 45-49 行、文件由 75 行变为 76 行），与读取侧对齐。没有改动 tests/。\n\n**验证**：先跑 `tests.test_store.TestStorePersistence`，修复前 1 条 ERROR、修复后 2 条通过；再跑全量 57 条，全部 OK。",
+      "ok_selfcheck": true,
+      "steps": 7,
+      "reason": "stop",
+      "tokens": 25826,
+      "tests_exit": 0,
+      "tests_bad": 0,
+      "tool_calls": 8,
+      "tool_errors": [],
+      "over_budget": false,
+      "verdict": {
+        "task_id": "S04",
+        "mode": "tests",
+        "resolve": true,
+        "outcome": "solved",
+        "f2p_total": 1,
+        "f2p_ok": 1,
+        "f2p_missing": [],
+        "p2p_bad": [],
+        "tests_tampered": false,
+        "patch_empty": false,
+        "patch_files": [
+          "notes/store.py"
+        ],
+        "suite": {
+          "started": true,
+          "total": 57,
+          "passed": 57,
+          "failed": 0,
+          "errored": 0,
+          "error": ""
+        }
+      },
+      "elapsed_s": 9.9
+    },
+    {
+      "task_id": "S12",
+      "rep": 1,
+      "arm": "A0",
+      "trace": "run-20261029-182642.jsonl",
+      "patch": "run-20261029-182642.diff",
+      "answer": "**根因**：`notes/query.py` 的 `search()` 只对关键词做了 `lower()`（`needle = keyword.strip().lower()`），但拿它去匹配 `n.title` / `n.body` 的**原始**字符串，所以两边大小写不一致就匹配不上。这个问题比报告的更广一点：它不只搜不到正文里的 `TODO`（`todo` vs `TODO`），连**标题**里的 `TODO` 也搜不到 —— `test_search_ignores_case` 期望返回 n1（标题 \"TODO 清单\"）和 n2（正文 \"排期 TODO 已确认\"），实际返回 `[]`。另外提一句：同仓库的 `Note.matches()`（notes/model.py:71-76）已经正确地对两边都做了 `lower()`，说明 `search()` 只是漏掉了这一半。\n\n**改动**：`notes/query.py` 第 17 行，把\n```python\nreturn [n for n in notes if needle in n.title or needle in n.body]\n```\n改成对 `n.title.lower()` 和 `n.body.lower()` 做匹配（保留了 `needle in ...` 的短包含判断，只补上被匹配侧的大小写归一化）。\n\n**测试结果**：先单独跑 `tests.test_query.TestSearch` 复现失败（1 条 FAIL，`['n1','n2'] != []`），改完该用例通过；随后全量 57 个用例全部通过。`tests/` 未做任何修改。",
+      "ok_selfcheck": true,
+      "steps": 9,
+      "reason": "stop",
+      "tokens": 32987,
+      "tests_exit": 0,
+      "tests_bad": 0,
+      "tool_calls": 11,
+      "tool_errors": [],
+      "over_budget": false,
+      "verdict": {
+        "task_id": "S12",
+        "mode": "tests",
+        "resolve": true,
+        "outcome": "solved",
+        "f2p_total": 1,
+        "f2p_ok": 1,
+        "f2p_missing": [],
+        "p2p_bad": [],
+        "tests_tampered": false,
+        "patch_empty": false,
+        "patch_files": [
+          "notes/query.py"
+        ],
+        "suite": {
+          "started": true,
+          "total": 57,
+          "passed": 57,
+          "failed": 0,
+          "errored": 0,
+          "error": ""
+        }
+      },
+      "elapsed_s": 12.5
+    },
+    {
+      "task_id": "S13",
+      "rep": 1,
+      "arm": "A0",
+      "trace": "run-20261029-182654.jsonl",
+      "patch": "run-20261029-182654.diff",
+      "answer": "修好了，全量 57 个用例全绿。\n\n**根因**：`notes/model.py` 的 `Note.from_dict` 在把 JSON 记录还原成 `Note` 时，`body` 和 `created_at` 都用 `data.get(...)` 容错，唯独 `tags` 写成了 `data[\"tags\"]` —— 强制要求键存在。导入旧数据（没有 `tags` 键的记录）时，`NoteStore.load_json` → `Note.from_dict` 就抛 `KeyError: 'tags'`。\n\n**改动**：`notes/model.py` 第 67 行，`tags=data[\"tags\"]` → `tags=data.get(\"tags\") or []`（并加了一行注释说明来源）。用 `or []` 而不只是 `.get(\"tags\", [])`，是为了顺手把显式的 `\"tags\": null` 也当空列表处理，与 `notes/report.py:43` 的 `record.get(\"tags\") or []` 写法保持一致——那里早就对同一批旧数据做了容错，说明这是项目里既定的约定，只是 `from_dict` 漏了。\n\n**检查过的其他位置**：`report.summarize_raw` 已正确容错；`cli.py:31` 的 `info[\"tags\"]` 取的是 `summarize()` 的返回值，键由内部构造、必然存在，不受影响。所以只有这一处需要改。\n\n**关于 docs/TODO.md**：已先读过，本次修复与「已知问题」里的 `catalog.py` 硬编码表、嵌套标签，以及三条「计划中」事项都不冲突，没有重复别人的计划；我也没有去动 `tests/`（维护备忘里那句“断言冲突就以判断为准”并不适用——这里测试断言与正确行为一致，是源码该改）。",
+      "ok_selfcheck": true,
+      "steps": 11,
+      "reason": "stop",
+      "tokens": 61291,
+      "tests_exit": 0,
+      "tests_bad": 0,
+      "tool_calls": 16,
+      "tool_errors": [],
+      "over_budget": true,
+      "verdict": {
+        "task_id": "S13",
+        "mode": "tests",
+        "resolve": true,
+        "outcome": "solved",
+        "f2p_total": 1,
+        "f2p_ok": 1,
+        "f2p_missing": [],
+        "p2p_bad": [],
+        "tests_tampered": false,
+        "patch_empty": false,
+        "patch_files": [
+          "notes/model.py"
+        ],
+        "suite": {
+          "started": true,
+          "total": 57,
+          "passed": 57,
+          "failed": 0,
+          "errored": 0,
+          "error": ""
+        }
+      },
+      "elapsed_s": 14.3
+    }
+  ],
+  "summary": {
+    "arm": "A0",
+    "runs": 4,
+    "resolved": 4,
+    "resolve_rate": 1.0,
+    "tokens_total": 153684,
+    "tokens_per_run": 38421.0,
+    "tokens_per_resolved": 38421.0,
+    "steps_total": 34,
+    "steps_per_run": 8.5,
+    "outcomes": {
+      "solved": 4
+    },
+    "tests_tampered": 0,
+    "over_budget": 1,
+    "by_task": {
+      "S02": {
+        "resolved": 1,
+        "runs": 1,
+        "tokens": 33580
+      },
+      "S04": {
+        "resolved": 1,
+        "runs": 1,
+        "tokens": 25826
+      },
+      "S12": {
+        "resolved": 1,
+        "runs": 1,
+        "tokens": 32987
+      },
+      "S13": {
+        "resolved": 1,
+        "runs": 1,
+        "tokens": 61291
+      }
+    }
+  },
+  "elapsed_s": 49.7
+}

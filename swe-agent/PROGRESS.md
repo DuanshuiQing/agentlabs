@@ -92,10 +92,21 @@ patch：@@ notes/reminder.py  -total = hours * 60 + minutes * 60
 
 ## M2 · 评测跑起来（3 天）
 
-- [ ] `eval/judge.py`（还原 tests → 跑套件 → 集合断言）
-- [ ] 13 条任务播种（S01–S13）
-- [ ] `eval/run_swe.py`（交错 / 全局前置清理 / `--plan` / `--rejudge`）
-- [ ] N=1 摸底，只修判据不重跑
+- [x] `eval/judge.py`（还原 tests → 跑套件 → 集合断言）+ 自检 6/6（空 patch/改对/改错/改测试/诚实/不诚实）
+- [x] 13 条任务播种（S01–S13）
+- [x] `eval/run_swe.py`（交错 / 全局前置清理 / `--plan` / `--rejudge` / 结果 JSON 带 git rev）
+- [x] **Pilot N=1（S02/S04/S12/S13）**：4/4 解决，**153 684 tokens**，均值 **38.4k/次**，S13 61k 超预算
+- [ ] 全量 N=1 摸底（等预算点头）
+
+### Pilot 的两个发现
+
+1. **判据层又抓到一个真缺陷**：`restore_tests` 原来是 `git checkout -- tests`，从**索引**还原；
+   而取完整 patch 时要先 `git add -A`，篡改过的测试已进索引 —— 于是"还原"把篡改版原样还回去。
+   `judge.py` 的自检（情形 4）当场报 `solved tampered=True`。改成 `git checkout HEAD -- tests` 后 6/6。
+   → 同一个坑的第二层：**"堵一层等于没堵"**（PLAN §5 第 28 条）。
+2. **任务集对你现在的模型偏容易**：pilot 4/4。按 PLAN §5 第 18 条的教训（"100% 不是 agent 强"），
+   `resolve@1 = 1.0` 意味着消融没有区分度 —— 全量摸底的目的就是找失败，而不是确认成功。
+
 
 ## M3 · 三个能力模块 + 消融（3 天）
 
