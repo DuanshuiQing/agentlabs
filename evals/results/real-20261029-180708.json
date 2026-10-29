@@ -1,0 +1,106 @@
+{
+  "schema": 1,
+  "mode": "real",
+  "started_at": "2026-10-29T18:07:08",
+  "finished_at": "2026-10-29T18:07:17",
+  "git_rev": "c7b43d705a66bca39416f825368f9fec9a12c677",
+  "git_dirty": [],
+  "model": "deepseek-chat",
+  "max_steps": 10,
+  "n": 1,
+  "tasks": [
+    "T10",
+    "T14"
+  ],
+  "products_cleared": [
+    "logs/answers.txt"
+  ],
+  "fixtures_restored": [
+    "data/lab/draft.txt"
+  ],
+  "budget": {
+    "T10": 16000,
+    "T14": 16000
+  },
+  "runs": [
+    {
+      "index": 1,
+      "task": "T10",
+      "fact": "lab-approve",
+      "trace": "run-20261029-180709.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 5,
+      "tokens": 6855,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "结论行含 需要、审批；且未出现 不需要",
+      "elapsed_s": 6.33
+    },
+    {
+      "index": 2,
+      "task": "T14",
+      "fact": "lab-threshold",
+      "trace": "run-20261029-180715.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 1774,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "结论行含 3000",
+      "elapsed_s": 1.62
+    }
+  ],
+  "summary": {
+    "total_runs": 2,
+    "pass": 2,
+    "pass_rate": 1.0,
+    "fail_reason": [],
+    "tokens_total": 8629,
+    "by_task": {
+      "T10": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 6855,
+        "tokens_max": 6855,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T14": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 1774,
+        "tokens_max": 1774,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      }
+    },
+    "facts": {
+      "lab-approve": {
+        "tasks": [
+          "T10"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      },
+      "lab-threshold": {
+        "tasks": [
+          "T14"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      }
+    }
+  }
+}
