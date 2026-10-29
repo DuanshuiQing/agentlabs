@@ -91,8 +91,11 @@ def main() -> int:
         # 一个在失败答案上也点头的断言，等于没有断言。
         if not run["ok"] and passed:
             problems.append(f"{run['file']}（{task.id}）agent 已宣告失败，断言却 PASS")
-        if run["ok"] and not passed:
-            problems.append(f"{run['file']}（{task.id}）agent 宣告成功，断言判 FAIL")
+        # 反方向**不是**问题：agent 正常收尾（`ok=True`）但答案错了，
+        # 恰恰是评测要抓的常态。原来这里也当成结构性问题拦下，是错的 ——
+        # 阶段 1 第 4 步首次真跑里 T13 就出了这个状态（漏列一个文件），
+        # 它是**真失败**，却被验证器报成"验证器自己坏了"。
+        # 只有 `ok=False` 那一侧才是结构不变量：失败的运行绝不能被判通过。
 
     # ---------------- 特异性矩阵 ----------------
     print("\n=== 特异性矩阵：每条轨迹的答案，在**每个**断言下的结果 ===")

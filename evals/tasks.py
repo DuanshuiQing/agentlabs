@@ -58,7 +58,11 @@ class Task:
     # 为什么需要它：阶段 1 第 1 步的特异性矩阵实测出"5 条任务只覆盖 3 组独立事实"
     # （T4 的答案必然包含 T1 的、T5 的必然包含 T2 的）。把 5 条当成 5 个独立样本
     # 去算方差是错的，所以报告必须能按 fact 归组（PLAN §5 第 24 条）。
-    budget_tokens: int = 8000  # 成本预算：超过就是异常，要在报告里标出来
+    budget_tokens: int = 16000  # 成本预算：超过就是异常，要在报告里标出来。
+    # 默认值按**实测**定：阶段 1 第 4 步首次真跑 24 条，最贵一次 12299（T22，7 步），
+    # 原来是 8000 —— 于是 T22/T23/T24 三条都被标成超预算，噪声淹了信号。
+    # 预算的用处是抓**异常**运行（比如撞 max_steps 的 47288），不是抓"多步任务"。
+    # T1–T5 单独给 8000：它们实测最大 5166，用 16000 太松。
 
 
 # ---------------------------------------------------------------------------
@@ -407,10 +411,13 @@ TASKS: tuple[Task, ...] = (
         id="T10",
         prompt="按 data/lab/terms.txt 的付款条款，这次采购需要组长审批吗？说明理由。",
         expect="需要（单笔 4140 元 > 3000 元审批线）",
-        method="性质断言（+需要审批 −不需要）",
-        # 唯一需要 none_of 的一条：**"不需要审批"里含"需要审批"**，
-        # 不写反例就分不出正反。这属于"正确答案绝不可能包含它"的情形。
-        check=_needs(("需要审批",), ("不需要",)),
+        method="性质断言（+需要 +审批 −不需要）",
+        # 实测踩过一次：原来写 `all_of=("需要审批",)`，而模型的自然措辞是
+        # 「需要**组长**审批」—— 中间插了主语，子串就对不上了，正确答案被判死。
+        # 拆成「需要」+「审批」两个必需的词，再把「不需要」当反例排除。
+        # 这一对是 `none_of` 包含 `all_of` 的**正当用法**（排除否定说法），
+        # self_check 有专门豁免。
+        check=_needs(("需要", "审批"), ("不需要",)),
         fixtures=("data/lab/memo.txt", "data/lab/quote-b.txt", "data/lab/terms.txt"),
         fact="lab-approve",
     ),
@@ -439,10 +446,22 @@ TASKS: tuple[Task, ...] = (
     ),
     Task(
         id="T13",
-        prompt="data/lab/ 目录里哪些文件不含任何阿拉伯数字？把文件名全部列出来。",
-        expect="plan.txt / memo.txt / staff.txt / draft.txt 四个，且不多列",
+        prompt=(
+            "data/lab/ 目录里哪些文件不含任何阿拉伯数字？"
+            "只输出这些文件的文件名，每行一个，不要列举不符合的文件、不要解释。"
+        ),
+        expect="只列 plan.txt / memo.txt / staff.txt / draft.txt 四个，不多列、不解释",
         method="性质断言（+4 个文件名 −3 个含数字的文件名）",
-        # 这一条**必须**用 none_of：列全 7 个文件也满足"四个都在"，那是没答。
+        # ⚠️ 这是 `none_of` 的**唯一正当用法**：题面明文要求"不要列举不符合的文件"，
+        # 所以守指令的回答不会出现那 3 个名字，`none_of` 才有意义。
+        #
+        # 实测踩过一次，而且很讽刺 —— 我在 `_needs` 的注释里刚写完
+        # "none_of 是危险条款"，然后自己用错了：最初题面只说"把文件名全部列出来"，
+        # 模型**答对了 4 个**，只是顺带补了一句"含阿拉伯数字的 3 个：
+        # quote-a.txt(1800)、quote-b.txt、terms.txt" —— 于是被判死。
+        # **答案对，解释被误判。**
+        # 修法不是删掉 none_of（那样"列全 7 个"也能过），而是**让题面和断言一致**：
+        # 断言禁止出现的东西，题面必须也禁止。
         check=_needs(
             ("plan.txt", "memo.txt", "staff.txt", "draft.txt"),
             ("quote-a.txt", "quote-b.txt", "terms.txt"),
@@ -457,7 +476,6 @@ TASKS: tuple[Task, ...] = (
             "data/lab/terms.txt",
         ),
         fact="lab-digitfree",
-        budget_tokens=12000,  # 要读 7 个文件
     ),
     Task(
         id="T14",
@@ -479,7 +497,6 @@ TASKS: tuple[Task, ...] = (
         check=_written("4140"),
         fixtures=("data/lab/memo.txt", "data/lab/quote-b.txt", "data/lab/draft.txt"),
         fact="lab-total",
-        budget_tokens=10000,
     ),
     Task(
         id="T16",
@@ -492,7 +509,6 @@ TASKS: tuple[Task, ...] = (
         check=_written("730"),
         fixtures=("data/lab/quote-a.txt", "data/lab/quote-b.txt", "data/lab/draft.txt"),
         fact="lab-diff",
-        budget_tokens=10000,
     ),
     Task(
         id="T17",
@@ -601,6 +617,11 @@ BY_PROMPT: dict[str, Task] = {t.prompt: t for t in TASKS}
 # 那条失败轨迹是**最有价值的证据之一**，不能因为它对应不上现题面就丢掉。
 LEGACY_PROMPTS: dict[str, str] = {
     "把 T1 的答案写入 logs/answers.txt，然后读回来确认写对了。": "T4",
+    # T13 的题面在第 4 步首次真跑之后改过：加了"不要列举不符合的文件、不要解释"。
+    # 原因见 T13 的注释 —— 断言禁止出现那 3 个文件名，题面就必须也禁止。
+    # **改题面的同时必须往这里补一条**，否则老轨迹会变成"题面对不上任何任务"：
+    # 证据还在，却没法再被核对。
+    "data/lab/ 目录里哪些文件不含任何阿拉伯数字？把文件名全部列出来。": "T13",
 }
 
 
@@ -704,14 +725,22 @@ def self_check() -> list[str]:
     for task in TASKS:
         for attr in ("all_of", "none_of"):
             for token in getattr(task.check, attr, ()):
-                tokens.append((task.id, token))
+                tokens.append((f"{task.id}:{attr}", token))
     for owner, token in tokens:
         for other_owner, other in tokens:
-            if token != other and token in other:
-                problems.append(
-                    f'断言串 "{token}"（{owner}）是 "{other}"（{other_owner}）的子串 '
-                    "—— `in answer` 会误命中"
-                )
+            if token == other or token not in other:
+                continue
+            # 同一个任务里 `none_of` 包含 `all_of` 的串是**故意的** ——
+            # 那正是"排除否定说法"的机制（all_of=需要 + none_of=不需要）。
+            # 要拦的是别的组合：同一列表内部互相包含，或者跨任务包含。
+            owner_task, owner_list = owner.split(":")
+            other_task, other_list = other_owner.split(":")
+            if owner_task == other_task and owner_list == "all_of" and other_list == "none_of":
+                continue
+            problems.append(
+                f'断言串 "{token}"（{owner}）是 "{other}"（{other_owner}）的子串 '
+                "—— `in answer` 会误命中"
+            )
 
     # ---- 每条断言都必须能在**空答案**上判失败 ----------------------------
     # 这是最便宜的一条"断言太松"探测器：一个连 `""` 都判通过的断言，

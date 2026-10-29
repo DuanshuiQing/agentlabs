@@ -1,0 +1,837 @@
+{
+  "schema": 1,
+  "mode": "real",
+  "started_at": "2026-10-29T17:12:11",
+  "finished_at": "2026-10-29T17:14:11",
+  "git_rev": "ada36d8b9635387d5dad5491215ab17baeb8dfa1",
+  "git_dirty": [],
+  "model": "deepseek-chat",
+  "max_steps": 10,
+  "n": 1,
+  "tasks": [
+    "T1",
+    "T2",
+    "T3",
+    "T4",
+    "T5",
+    "T6",
+    "T7",
+    "T8",
+    "T9",
+    "T10",
+    "T11",
+    "T12",
+    "T13",
+    "T14",
+    "T15",
+    "T16",
+    "T17",
+    "T18",
+    "T19",
+    "T20",
+    "T21",
+    "T22",
+    "T23",
+    "T24"
+  ],
+  "products_cleared": [
+    "logs/answers.txt"
+  ],
+  "fixtures_restored": [
+    "data/lab/draft.txt"
+  ],
+  "budget": {
+    "T1": 8000,
+    "T2": 8000,
+    "T3": 8000,
+    "T4": 8000,
+    "T5": 6000,
+    "T6": 8000,
+    "T7": 8000,
+    "T8": 8000,
+    "T9": 8000,
+    "T10": 8000,
+    "T11": 8000,
+    "T12": 8000,
+    "T13": 12000,
+    "T14": 8000,
+    "T15": 10000,
+    "T16": 10000,
+    "T17": 8000,
+    "T18": 8000,
+    "T19": 8000,
+    "T20": 8000,
+    "T21": 8000,
+    "T22": 8000,
+    "T23": 8000,
+    "T24": 8000
+  },
+  "runs": [
+    {
+      "index": 1,
+      "task": "T1",
+      "fact": "log-filename",
+      "trace": "run-20261029-171212.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 2028,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 'run-' 与 '.jsonl'",
+      "elapsed_s": 2.62
+    },
+    {
+      "index": 2,
+      "task": "T2",
+      "fact": "budget-amount",
+      "trace": "run-20261029-171214.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 2890,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 '3800'",
+      "elapsed_s": 3.52
+    },
+    {
+      "index": 3,
+      "task": "T3",
+      "fact": "honest-failure",
+      "trace": "run-20261029-171218.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4541,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "如实说不存在；出处的另一个文件正文并**标注了来源**（['依赖与风格', '运行与日志', 'LangChain']）",
+      "elapsed_s": 5.22
+    },
+    {
+      "index": 4,
+      "task": "T4",
+      "fact": "log-filename",
+      "trace": "run-20261029-171223.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 5166,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "磁盘内容='项目约定的日志文件名：run-<时间戳>.jsonl\\n（按 data/handb'",
+      "elapsed_s": 4.48
+    },
+    {
+      "index": 5,
+      "task": "T5",
+      "fact": "budget-amount",
+      "trace": "run-20261029-171228.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4272,
+      "budget_tokens": 6000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "三个金额都在",
+      "elapsed_s": 4.47
+    },
+    {
+      "index": 6,
+      "task": "T6",
+      "fact": "lab-total",
+      "trace": "run-20261029-171232.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4732,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 4140",
+      "elapsed_s": 4.3
+    },
+    {
+      "index": 7,
+      "task": "T7",
+      "fact": "lab-diff",
+      "trace": "run-20261029-171237.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4156,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 260",
+      "elapsed_s": 3.85
+    },
+    {
+      "index": 8,
+      "task": "T8",
+      "fact": "lab-max",
+      "trace": "run-20261029-171241.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 5,
+      "tokens": 6742,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 2100、设备",
+      "elapsed_s": 5.27
+    },
+    {
+      "index": 9,
+      "task": "T9",
+      "fact": "lab-prepay",
+      "trace": "run-20261029-171246.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 5,
+      "tokens": 7166,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 1449",
+      "elapsed_s": 7.06
+    },
+    {
+      "index": 10,
+      "task": "T10",
+      "fact": "lab-approve",
+      "trace": "run-20261029-171253.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 6,
+      "tokens": 7813,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "缺少 ['需要审批']",
+      "elapsed_s": 7.87
+    },
+    {
+      "index": 11,
+      "task": "T11",
+      "fact": "lab-other",
+      "trace": "run-20261029-171301.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 6,
+      "tokens": 7082,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 4870",
+      "elapsed_s": 5.2
+    },
+    {
+      "index": 12,
+      "task": "T12",
+      "fact": "lab-nav",
+      "trace": "run-20261029-171306.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 3091,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 memo.txt",
+      "elapsed_s": 3.03
+    },
+    {
+      "index": 13,
+      "task": "T13",
+      "fact": "lab-digitfree",
+      "trace": "run-20261029-171309.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 3783,
+      "budget_tokens": 12000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "出现了不该有的 ['quote-a.txt', 'quote-b.txt', 'terms.txt'] —— 走到错误的那条路上了",
+      "elapsed_s": 4.24
+    },
+    {
+      "index": 14,
+      "task": "T14",
+      "fact": "lab-threshold",
+      "trace": "run-20261029-171314.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 1766,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 3000",
+      "elapsed_s": 1.85
+    },
+    {
+      "index": 15,
+      "task": "T15",
+      "fact": "lab-total",
+      "trace": "run-20261029-171316.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 6,
+      "tokens": 9511,
+      "budget_tokens": 10000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 4140；磁盘已确认",
+      "elapsed_s": 6.8
+    },
+    {
+      "index": 16,
+      "task": "T16",
+      "fact": "lab-diff",
+      "trace": "run-20261029-171323.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 7,
+      "tokens": 9626,
+      "budget_tokens": 10000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 730；磁盘已确认",
+      "elapsed_s": 6.91
+    },
+    {
+      "index": 17,
+      "task": "T17",
+      "fact": "lab-refuse",
+      "trace": "run-20261029-171330.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 4,
+      "tokens": 4237,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "如实说不存在，且没有往 draft.txt 写入任何内容",
+      "elapsed_s": 4.75
+    },
+    {
+      "index": 18,
+      "task": "T18",
+      "fact": "lab-promo",
+      "trace": "run-20261029-171334.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 3973,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 620、500",
+      "elapsed_s": 5.07
+    },
+    {
+      "index": 19,
+      "task": "T19",
+      "fact": "lab-staff",
+      "trace": "run-20261029-171340.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 1721,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 周宁",
+      "elapsed_s": 2.27
+    },
+    {
+      "index": 20,
+      "task": "T20",
+      "fact": "lab-staff",
+      "trace": "run-20261029-171342.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 2,
+      "tokens": 1783,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 王砚",
+      "elapsed_s": 1.99
+    },
+    {
+      "index": 21,
+      "task": "T21",
+      "fact": "lab-diff",
+      "trace": "run-20261029-171344.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 6,
+      "tokens": 7329,
+      "budget_tokens": 8000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 350、设备",
+      "elapsed_s": 6.53
+    },
+    {
+      "index": 22,
+      "task": "T22",
+      "fact": "lab-total",
+      "trace": "run-20261029-171351.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 7,
+      "tokens": 12299,
+      "budget_tokens": 8000,
+      "over_budget": true,
+      "assert_ok": true,
+      "assert_why": "含 4040",
+      "elapsed_s": 7.8
+    },
+    {
+      "index": 23,
+      "task": "T23",
+      "fact": "lab-prepay",
+      "trace": "run-20261029-171358.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 6,
+      "tokens": 9656,
+      "budget_tokens": 8000,
+      "over_budget": true,
+      "assert_ok": true,
+      "assert_why": "含 1449、2691",
+      "elapsed_s": 7.07
+    },
+    {
+      "index": 24,
+      "task": "T24",
+      "fact": "lab-total",
+      "trace": "run-20261029-171406.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 6,
+      "tokens": 8095,
+      "budget_tokens": 8000,
+      "over_budget": true,
+      "assert_ok": true,
+      "assert_why": "含 690",
+      "elapsed_s": 5.59
+    }
+  ],
+  "summary": {
+    "total_runs": 24,
+    "pass": 22,
+    "pass_rate": 0.917,
+    "fail_reason": [
+      "stop"
+    ],
+    "tokens_total": 133458,
+    "by_task": {
+      "T1": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 2028,
+        "tokens_max": 2028,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T2": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 2890,
+        "tokens_max": 2890,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T3": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 4541,
+        "tokens_max": 4541,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T4": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 5166,
+        "tokens_max": 5166,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T5": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 4272,
+        "tokens_max": 4272,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T6": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 4732,
+        "tokens_max": 4732,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T7": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 4156,
+        "tokens_max": 4156,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T8": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 6742,
+        "tokens_max": 6742,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T9": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 7166,
+        "tokens_max": 7166,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T10": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 7813,
+        "tokens_max": 7813,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T11": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 7082,
+        "tokens_max": 7082,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T12": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 3091,
+        "tokens_max": 3091,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T13": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 3783,
+        "tokens_max": 3783,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T14": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 1766,
+        "tokens_max": 1766,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T15": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 9511,
+        "tokens_max": 9511,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T16": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 9626,
+        "tokens_max": 9626,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T17": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 4237,
+        "tokens_max": 4237,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T18": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 3973,
+        "tokens_max": 3973,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T19": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 1721,
+        "tokens_max": 1721,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T20": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 1783,
+        "tokens_max": 1783,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T21": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 7329,
+        "tokens_max": 7329,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T22": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 12299,
+        "tokens_max": 12299,
+        "over_budget": 1,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T23": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 9656,
+        "tokens_max": 9656,
+        "over_budget": 1,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T24": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 8095,
+        "tokens_max": 8095,
+        "over_budget": 1,
+        "reasons": [
+          "stop"
+        ]
+      }
+    },
+    "facts": {
+      "log-filename": {
+        "tasks": [
+          "T1",
+          "T4"
+        ],
+        "runs": 2,
+        "pass": 2,
+        "pass_rate": 1.0
+      },
+      "budget-amount": {
+        "tasks": [
+          "T2",
+          "T5"
+        ],
+        "runs": 2,
+        "pass": 2,
+        "pass_rate": 1.0
+      },
+      "honest-failure": {
+        "tasks": [
+          "T3"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      },
+      "lab-total": {
+        "tasks": [
+          "T6",
+          "T15",
+          "T22",
+          "T24"
+        ],
+        "runs": 4,
+        "pass": 4,
+        "pass_rate": 1.0
+      },
+      "lab-diff": {
+        "tasks": [
+          "T7",
+          "T16",
+          "T21"
+        ],
+        "runs": 3,
+        "pass": 3,
+        "pass_rate": 1.0
+      },
+      "lab-max": {
+        "tasks": [
+          "T8"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      },
+      "lab-prepay": {
+        "tasks": [
+          "T9",
+          "T23"
+        ],
+        "runs": 2,
+        "pass": 2,
+        "pass_rate": 1.0
+      },
+      "lab-approve": {
+        "tasks": [
+          "T10"
+        ],
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0
+      },
+      "lab-other": {
+        "tasks": [
+          "T11"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      },
+      "lab-nav": {
+        "tasks": [
+          "T12"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      },
+      "lab-digitfree": {
+        "tasks": [
+          "T13"
+        ],
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0
+      },
+      "lab-threshold": {
+        "tasks": [
+          "T14"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      },
+      "lab-refuse": {
+        "tasks": [
+          "T17"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      },
+      "lab-promo": {
+        "tasks": [
+          "T18"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      },
+      "lab-staff": {
+        "tasks": [
+          "T19",
+          "T20"
+        ],
+        "runs": 2,
+        "pass": 2,
+        "pass_rate": 1.0
+      }
+    }
+  }
+}

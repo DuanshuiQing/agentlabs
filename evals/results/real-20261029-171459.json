@@ -1,0 +1,110 @@
+{
+  "schema": 1,
+  "mode": "real",
+  "started_at": "2026-10-29T17:14:59",
+  "finished_at": "2026-10-29T17:15:10",
+  "git_rev": "ada36d8b9635387d5dad5491215ab17baeb8dfa1",
+  "git_dirty": [
+    "evals/tasks.py"
+  ],
+  "model": "deepseek-chat",
+  "max_steps": 10,
+  "n": 1,
+  "tasks": [
+    "T10",
+    "T13"
+  ],
+  "products_cleared": [
+    "logs/answers.txt"
+  ],
+  "fixtures_restored": [
+    "data/lab/draft.txt"
+  ],
+  "budget": {
+    "T10": 16000,
+    "T13": 16000
+  },
+  "runs": [
+    {
+      "index": 1,
+      "task": "T10",
+      "fact": "lab-approve",
+      "trace": "run-20261029-171501.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 5,
+      "tokens": 6477,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": true,
+      "assert_why": "含 需要、审批；且未出现 不需要",
+      "elapsed_s": 6.29
+    },
+    {
+      "index": 2,
+      "task": "T13",
+      "fact": "lab-digitfree",
+      "trace": "run-20261029-171507.jsonl",
+      "ok": true,
+      "reason": "stop",
+      "steps": 3,
+      "tokens": 3567,
+      "budget_tokens": 16000,
+      "over_budget": false,
+      "assert_ok": false,
+      "assert_why": "缺少 ['draft.txt']",
+      "elapsed_s": 2.9
+    }
+  ],
+  "summary": {
+    "total_runs": 2,
+    "pass": 1,
+    "pass_rate": 0.5,
+    "fail_reason": [
+      "stop"
+    ],
+    "tokens_total": 10044,
+    "by_task": {
+      "T10": {
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0,
+        "tokens_sum": 6477,
+        "tokens_max": 6477,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      },
+      "T13": {
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0,
+        "tokens_sum": 3567,
+        "tokens_max": 3567,
+        "over_budget": 0,
+        "reasons": [
+          "stop"
+        ]
+      }
+    },
+    "facts": {
+      "lab-approve": {
+        "tasks": [
+          "T10"
+        ],
+        "runs": 1,
+        "pass": 1,
+        "pass_rate": 1.0
+      },
+      "lab-digitfree": {
+        "tasks": [
+          "T13"
+        ],
+        "runs": 1,
+        "pass": 0,
+        "pass_rate": 0.0
+      }
+    }
+  }
+}
