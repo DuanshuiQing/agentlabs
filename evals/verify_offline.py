@@ -98,16 +98,28 @@ def main() -> int:
         # 只有 `ok=False` 那一侧才是结构不变量：失败的运行绝不能被判通过。
 
     # ---------------- 特异性矩阵 ----------------
+    # ⚠️ **只统计能解析出「结论：…」行的轨迹。**
+    # 题面加了输出契约之后，老轨迹几乎全部被"没有结论行"判死。把它们混进来，
+    # 矩阵会变成一片 `·`，于是"零重叠"变成一个假的好消息 —— 实测踩过：
+    # 加完结论行第一次跑 `verify_offline` 报"重叠 0 处"，真相是 62 份轨迹里
+    # 只有 2 份带结论行，矩阵几乎是空的。
+    # **被排除的条数必须打印出来**，否则又是一次"静默缩小样本"。
     print("\n=== 特异性矩阵：每条轨迹的答案，在**每个**断言下的结果 ===")
-    print("     （只列能匹配到任务的轨迹；· 表示不过，P 表示通过）\n")
+    print("     （只列能匹配到任务、且答案带「结论：…」行的轨迹；· 不过，P 通过）\n")
     ids = [t.id for t in TASKS]
     print(f"{'轨迹 / 答案来自':<30}" + "".join(f"{i:>5}" for i in ids))
     print("-" * (30 + 5 * len(ids)))
     overlaps: list[str] = []
+    skipped_no_conclusion = 0
+    comparable = 0
     for run in runs:
         own = match(run["prompt"])
         if own is None:
             continue
+        if _conclusion(run["answer"]) is None:
+            skipped_no_conclusion += 1
+            continue
+        comparable += 1
         cells = []
         for task in TASKS:
             passed, _ = task.check(run["answer"], None)
@@ -116,6 +128,7 @@ def main() -> int:
             if passed and task.id != own.id:
                 overlaps.append(f"{own.id} 的答案 也让 {task.id} 的断言通过了")
         print(f"{run['file'] + ' (' + own.id + ')':<30}" + "".join(f"{c:>5}" for c in cells))
+    print(f"\n可比轨迹 {comparable} 份；因「没有结论行」被排除 {skipped_no_conclusion} 份")
 
     print("\n断言重叠情况（别的任务的断言，在本任务答案上也通过）：")
     if overlaps:
