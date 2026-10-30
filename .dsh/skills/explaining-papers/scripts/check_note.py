@@ -236,6 +236,25 @@ def _valid_note() -> str:
 """
 
 
+# ---------------------------------------------------------------------------
+# 类型判别：按**内容**，不按文件名
+#
+# 原来按 `path.name == "INDEX.md"` 分派。检验时造了三个 INDEX 坏样本，叫 `idx-a.md`，
+# 结果它们被**笔记**规则去查 —— 报了一堆"缺作者行"这种毫不相干的错。
+# 也就是说：**文件改个名字，判据就静默换了一套**，而且不会报错。
+# 这和阶段 1 那条"产物撞 fixture"是同一类：选错了判据，却长得像"查过了"。
+# ---------------------------------------------------------------------------
+
+
+def detect_kind(text: str) -> str | None:
+    """按特征词判别：INDEX 有「L0 + 速览卡」，笔记有「五段速记 + 关键原文句」。"""
+    if ("L0" in text and "速览卡" in text) or "横向对比矩阵" in text:
+        return "index"
+    if "五段速记" in text and "关键原文句" in text:
+        return "note"
+    return None
+
+
 # (名字, 改坏方式, 期望输出里出现的关键字)
 MUTATIONS: list[tuple[str, str, str]] = [
     ("删掉术语表", "replace", "找不到「术语表」"),
@@ -245,6 +264,10 @@ MUTATIONS: list[tuple[str, str, str]] = [
     ("删掉作者行", "noauthor", "缺「作者」"),
     ("删掉局限段", "nolimit", "缺「局限」"),
     ("对接写成空话", "vaguedock", "对接节没有落到"),
+    # ↓ 下面两条是"检验这个 skill"时补的：原来自检没覆盖它们，
+    #   等于"节顺序"和"边界值"两条规则从没被证明过会报。
+    ("交换批判与对接", "swap", "顺序不对"),
+    ("页码只剩 19 个", "anchors19", "页码锚点"),
 ]
 
 
@@ -263,7 +286,80 @@ def _mutate(base: str, how: str) -> str:
         return base.replace("| 局限 | d |\n", "")
     if how == "vaguedock":
         return re.sub(r"## 7\. .*?\n\n.*?\n\n## 8", "## 7. 与 mini-agent 的对接\n\n可以借鉴其思想。\n\n## 8", base, flags=re.S)
+    if how == "swap":
+        # 把「批判」整段挪到「对接」后面
+        return re.sub(
+            r"(## 6\. 批判与未解问题\n\n.*?\n\n)(## 7\. [^\n]*\n\n.*?\n\n)(## 8\.)",
+            r"\2\1\3",
+            base,
+            flags=re.S,
+        )
+    if how == "anchors19":
+        # 注意：样本里 `p.N` 有**两种形态** —— 括号锚点 `[p.9]`，还有 `(Table 1, p.6)` 里那种。
+        # 只删括号形态会留下一个，于是"删到 19"其实是 20，仍然通过（这是自检第二次
+        # 抓出来的：第一次是阈值差一，这次是"我以为的样本"和"真实的样本"不一样）。
+        # 所以先清掉**所有** `p.N`，再放回恰好 19 个。
+        stripped = re.sub(r"p\.\d+", "", base)
+        return stripped + "\n" + " ".join(f"[p.{i}]" for i in range(1, 20)) + "\n"
     raise ValueError(how)
+
+
+def _valid_index() -> str:
+    """一个刚刚好满足全部 INDEX 规则的最小索引页。"""
+    return """# 论文速览
+
+## 0. 关系图
+
+一句话串起来。
+
+## 1. L0 速览卡
+
+| 一句话结论 | a |
+| --- | --- |
+| 我的判断 | b |
+| 值不值得细读 | ★★★★☆ 读 §3 |
+
+## 2. 横向对比矩阵
+
+| 维度 | A | B |
+| --- | --- | --- |
+| 我更信哪部分 | x | y |
+| 主要遗留风险 | p | q |
+
+## 3. 三种读法
+
+- 10 分钟：读 L0 卡
+- 1 小时：读 §3–§4
+
+## 4. 落地清单
+
+| 优先级 | 改动 | 落在哪 | 依据 |
+| --- | --- | --- | --- |
+| P0 | a | `tools.py` | §4 |
+
+## 5. 跨篇术语表
+
+| 术语 | 解释 | 谁在用 |
+| --- | --- | --- |
+
+## 6. 已知缺陷与未核实清单
+
+未核实项无。
+
+## 7. 更新记录
+
+- 2026-10-29：初版
+"""
+
+
+# (名字, 改坏方式, 期望输出里出现的关键字)
+INDEX_MUTATIONS: list[tuple[str, str, str]] = [
+    ("删掉「我更信哪部分」", "我更信哪部分", "我更信哪部分"),
+    ("删掉「主要遗留风险」", "主要遗留风险", "主要遗留风险"),
+    ("删掉「值不值得细读」", "值不值得细读", "值不值得细读"),
+    ("删掉「更新记录」", "更新记录", "更新记录"),
+    ("删掉「未核实」", "未核实", "未核实"),
+]
 
 
 def self_test() -> int:
@@ -273,23 +369,54 @@ def self_test() -> int:
     sandbox.mkdir(parents=True, exist_ok=True)
     ok = 0
     failed = 0
+    cases: list[tuple[str, Path, bool]] = []
+
+    def run(label: str, name: str, text: str, kind: str, needle: str) -> None:
+        nonlocal ok, failed
+        path = sandbox / name
+        path.write_text(text, encoding="utf-8", newline="\n")
+        detected = detect_kind(path.read_text(encoding="utf-8"))
+        problems = check_index(path) if detected == "index" else check_note(path) if detected == "note" else []
+        joined = "\n".join(problems)
+        hit = needle in joined
+        print(f"  {'✓' if hit else '✗'} {label:<22} 期望含「{needle}」")
+        ok += 1 if hit else 0
+        failed += 0 if hit else 1
+
     try:
         base = _valid_note()
         good = sandbox / "good.md"
         good.write_text(base, encoding="utf-8", newline="\n")
         problems = check_note(good)
-        print(f"  {'✓' if not problems else '✗'} 合法样本不被误报" + (f"：{problems}" if problems else ""))
+        print(f"  {'✓' if not problems else '✗'} {'合法笔记不被误报':<16}" + (f"：{problems}" if problems else ""))
+        ok += 0 if problems else 1
+        failed += 1 if problems else 0
+
+        idx = _valid_index()
+        idx_path = sandbox / "index-good.md"
+        idx_path.write_text(idx, encoding="utf-8", newline="\n")
+        print(f"  {'✓' if detect_kind(idx) == 'index' else '✗'} {'INDEX 被认出来':<16}（按内容，不按文件名）")
+        ok += 1 if detect_kind(idx) == "index" else 0
+        failed += 0 if detect_kind(idx) == "index" else 1
+        problems = check_index(idx_path)
+        print(f"  {'✓' if not problems else '✗'} {'合法 INDEX 不被误报':<14}" + (f"：{problems}" if problems else ""))
         ok += 0 if problems else 1
         failed += 1 if problems else 0
 
         for label, how, needle in MUTATIONS:
-            bad = sandbox / "bad.md"
-            bad.write_text(_mutate(base, how), encoding="utf-8", newline="\n")
-            joined = "\n".join(check_note(bad))
-            hit = needle in joined
-            print(f"  {'✓' if hit else '✗'} {label:<14} 期望含「{needle}」")
-            ok += 1 if hit else 0
-            failed += 0 if hit else 1
+            run(label, "bad-note.md", _mutate(base, how), "note", needle)
+
+        for label, cut, needle in INDEX_MUTATIONS:
+            run(label, "bad-index.md", idx.replace(cut, "X"), "index", needle)
+
+        # 既不像笔记也不像 INDEX：必须拒绝，而不是拿错规则硬查
+        unknown = sandbox / "unknown.md"
+        unknown.write_text("# 随便一份文档\n\n正文。\n", encoding="utf-8", newline="\n")
+        hit = detect_kind(unknown.read_text(encoding="utf-8")) is None
+        print(f"  {'✓' if hit else '✗'} {'不像任何一类时拒绝判':<12}")
+        ok += 1 if hit else 0
+        failed += 0 if hit else 1
+        _ = cases
     finally:
         for p in sorted(sandbox.glob("*"), reverse=True):
             p.unlink()
@@ -302,7 +429,8 @@ def self_test() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="校验论文笔记 / INDEX 的格式")
     parser.add_argument("paths", nargs="*", help="笔记或 INDEX 的路径")
-    parser.add_argument("--self-test", action="store_true", help="造合法样本 + 7 种改坏，确认规则真的会报")
+    parser.add_argument("--kind", choices=("note", "index"), help="强制类型（默认按内容自动判别）")
+    parser.add_argument("--self-test", action="store_true", help="造合法样本 + 改坏，确认规则真的会报")
     args = parser.parse_args()
 
     if args.self_test:
@@ -317,14 +445,22 @@ def main() -> int:
             print(f"✗ 找不到 {path}")
             total += 1
             continue
-        problems = check_index(path) if path.name.upper() == "INDEX.MD" else check_note(path)
+        kind = args.kind or detect_kind(path.read_text(encoding="utf-8-sig"))
+        if kind is None:
+            print(f"\n✗ {path}")
+            print("    无法判定类型：既没有「五段速记」+「关键原文句」（笔记），"
+                  "也没有「L0」+「速览卡」（INDEX）")
+            print("    —— 不猜。确认它是哪一类，或加 --kind note / --kind index")
+            total += 1
+            continue
+        problems = check_index(path) if kind == "index" else check_note(path)
         if problems:
             total += len(problems)
-            print(f"\n✗ {path}")
+            print(f"\n✗ {path}  [{kind}]")
             for item in problems:
                 print(f"    {item}")
         else:
-            print(f"✓ {path}")
+            print(f"✓ {path}  [{kind}]")
     print(f"\n{'全部通过' if not total else f'共 {total} 个问题'}")
     return 0 if not total else 1
 
